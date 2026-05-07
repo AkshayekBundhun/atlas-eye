@@ -135,6 +135,7 @@ function MauritiusMap({
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const flightMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const [layers, setLayers] = useState({
     cameras: true,
     traffic: true,
@@ -265,6 +266,91 @@ markersRef.current.push(marker);
       element.style.display = layers.cameras ? "block" : "none";
     });
   }, [layers.cameras]);
+  
+    useEffect(() => {
+      if (!mapRef.current) return;
+    
+      const clearFlightMarkers = () => {
+        flightMarkersRef.current.forEach((marker) => marker.remove());
+        flightMarkersRef.current = [];
+      };
+    
+      const loadFlightsInView = async () => {
+        if (!mapRef.current) return;
+    
+        clearFlightMarkers();
+    
+        if (!layers.flights) return;
+    
+        try {
+          const bounds = mapRef.current.getBounds();
+          if (!bounds) return;
+    
+          const south = bounds.getSouth();
+          const west = bounds.getWest();
+          const north = bounds.getNorth();
+          const east = bounds.getEast();
+    
+          const response = await fetch(
+            `/api/flights?lamin=${south}&lomin=${west}&lamax=${north}&lomax=${east}`
+          );
+    
+          const data = await response.json();
+    
+          if (!data.flights || data.flights.length === 0) {
+            console.log("No live aircraft detected in this visible map area.");
+            return;
+          }
+    
+          data.flights.forEach((flight: any) => {
+            if (!flight.longitude || !flight.latitude) return;
+    
+            const planeElement = document.createElement("button");
+            planeElement.className =
+              "h-8 w-8 rounded-full border border-cyan-300 bg-[#07111F]/90 text-lg shadow-[0_0_20px_rgba(0,229,255,0.6)] cursor-pointer flex items-center justify-center";
+            planeElement.innerText = "✈️";
+            planeElement.style.transform =`rotate(${flight.heading || 0}deg)`;
+    
+            const marker = new mapboxgl.Marker(planeElement)
+  .setLngLat([flight.longitude, flight.latitude])
+  .setPopup(
+    new mapboxgl.Popup({ offset: 25 }).setHTML(`
+      <div style="color:#07111F; font-family:Arial, sans-serif; font-size:13px; line-height:1.5; min-width:180px;">
+        <strong style="font-size:15px;">${flight.callsign || "Unknown Flight"}</strong><br/>
+        <span>Country: ${flight.originCountry || "Unknown"}</span><br/>
+        <span>Altitude: ${
+          flight.altitude ? Math.round(flight.altitude) + " m" : "Unknown"
+        }</span><br/>
+        <span>Speed: ${
+          flight.velocity
+            ? Math.round(flight.velocity * 3.6) + " km/h"
+            : "Unknown"
+        }</span><br/>
+        <span>Source: OpenSky Network</span>
+      </div>
+    `)
+              )
+              .addTo(mapRef.current!);
+    
+            flightMarkersRef.current.push(marker);
+          });
+        } catch (error) {
+          console.error("Could not load flights in visible map area", error);
+        }
+      };
+    
+      loadFlightsInView();
+
+      mapRef.current.on("moveend", loadFlightsInView);
+      mapRef.current.on("zoomend", loadFlightsInView);
+    
+      return () => {
+        mapRef.current?.off("moveend", loadFlightsInView);
+        mapRef.current?.off("zoomend", loadFlightsInView);
+        clearFlightMarkers();
+      };
+    }, [layers.flights]);
+  
   return (
     <div className="relative h-full w-full rounded-2xl overflow-hidden">
       <div ref={mapContainer} className="h-full w-full rounded-2xl" />
