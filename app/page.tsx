@@ -134,6 +134,7 @@ function MauritiusMap({
 }) {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
   const [layers, setLayers] = useState({
     cameras: true,
     traffic: true,
@@ -243,17 +244,27 @@ function MauritiusMap({
         "h-5 w-5 rounded-full bg-cyan-400 border-2 border-white shadow-[0_0_18px_rgba(0,229,255,0.9)] cursor-pointer";
 
       markerElement.onclick = () => onSelectCamera(camera);
-      new mapboxgl.Marker(markerElement)
-    .setLngLat([camera.lng, camera.lat])
-    .addTo(map);
+      const marker = new mapboxgl.Marker(markerElement)
+  .setLngLat([camera.lng, camera.lat])
+  .addTo(map);
+
+markersRef.current.push(marker);
     });
 
     return () => {
+      markersRef.current.forEach((marker) => marker.remove());
+      markersRef.current = [];
       map.remove();
       mapRef.current = null;
     };
   }, [onSelectCamera]);
 
+  useEffect(() => {
+    markersRef.current.forEach((marker) => {
+      const element = marker.getElement();
+      element.style.display = layers.cameras ? "block" : "none";
+    });
+  }, [layers.cameras]);
   return (
     <div className="relative h-full w-full rounded-2xl overflow-hidden">
       <div ref={mapContainer} className="h-full w-full rounded-2xl" />
