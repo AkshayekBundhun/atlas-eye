@@ -134,7 +134,20 @@ function MauritiusMap({
 }) {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
-
+  const [layers, setLayers] = useState({
+    cameras: true,
+    traffic: true,
+    weather: false,
+    ships: false,
+    flights: false,
+  });
+  
+  const toggleLayer = (layer: keyof typeof layers) => {
+    setLayers((prev) => ({
+      ...prev,
+      [layer]: !prev[layer],
+    }));
+  };
   const zoomToPortLouis = () => {
     if (!mapRef.current) return;
 
@@ -245,70 +258,114 @@ function MauritiusMap({
     <div className="relative h-full w-full rounded-2xl overflow-hidden">
       <div ref={mapContainer} className="h-full w-full rounded-2xl" />
   
+      {/* Map movement controls */}
       <div className="absolute top-5 left-5 z-10 flex flex-wrap gap-2">
-  <button
-    onClick={zoomToPortLouis}
-    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
-  >
-    Zoom Port Louis
-  </button>
-
-  <button
-    onClick={showAllCameras}
-    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
-  >
-    Show All
-  </button>
-
-  <button
-    onClick={rotateLeft}
-    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
-  >
-    Rotate Left
-  </button>
-
-  <button
-    onClick={rotateRight}
-    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
-  >
-    Rotate Right
-  </button>
-
-  <button
-    onClick={increaseAngle}
-    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
-  >
-    Angle +
-  </button>
-
-  <button
-    onClick={decreaseAngle}
-    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
-  >
-    Angle -
-  </button>
-
-  <button
-    onClick={resetView}
-    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
-  >
-    Reset
-  </button>
-</div>
         <button
           onClick={zoomToPortLouis}
-          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-4 py-2 text-xs font-semibold text-cyan-300 shadow-[0_0_18px_rgba(0,229,255,0.25)]"
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
         >
-          Zoom to Port Louis
+          Zoom Port Louis
         </button>
   
         <button
           onClick={showAllCameras}
-          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-4 py-2 text-xs font-semibold text-cyan-300 shadow-[0_0_18px_rgba(0,229,255,0.25)]"
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
         >
-          Show All Cameras
+          Show All
+        </button>
+  
+        <button
+          onClick={rotateLeft}
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+        >
+          Rotate Left
+        </button>
+  
+        <button
+          onClick={rotateRight}
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+        >
+          Rotate Right
+        </button>
+  
+        <button
+          onClick={increaseAngle}
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+        >
+          Angle +
+        </button>
+  
+        <button
+          onClick={decreaseAngle}
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+        >
+          Angle -
+        </button>
+  
+        <button
+          onClick={resetView}
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+        >
+          Reset
         </button>
       </div>
+  
+      {/* Map layers panel */}
+      <div className="absolute top-5 right-5 z-10 rounded-2xl border border-cyan-500/30 bg-[#07111F]/90 p-3 shadow-[0_0_20px_rgba(0,229,255,0.15)]">
+        <p className="mb-2 text-[10px] uppercase tracking-widest text-cyan-300">
+          Map Layers
+        </p>
+  
+        <div className="space-y-2">
+          {[
+            ["cameras", "📹 Cameras"],
+            ["traffic", "🚦 Traffic"],
+            ["weather", "🌧️ Weather"],
+            ["ships", "🚢 Ships"],
+            ["flights", "✈️ Flights"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => toggleLayer(key as keyof typeof layers)}
+              className={`block w-full rounded-lg border px-3 py-2 text-left text-xs font-semibold ${
+                layers[key as keyof typeof layers]
+                  ? "border-cyan-400 bg-cyan-400/15 text-cyan-300"
+                  : "border-gray-600 bg-black/30 text-gray-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+  
+      {/* Active layer indicators */}
+      <div className="absolute bottom-5 left-5 z-10 flex flex-wrap gap-2">
+        {layers.traffic && (
+          <div className="rounded-full border border-yellow-400/50 bg-yellow-400/10 px-3 py-2 text-xs font-semibold text-yellow-300">
+            🚦 Traffic layer active
+          </div>
+        )}
+  
+        {layers.weather && (
+          <div className="rounded-full border border-blue-400/50 bg-blue-400/10 px-3 py-2 text-xs font-semibold text-blue-300">
+            🌧️ Weather layer active
+          </div>
+        )}
+  
+        {layers.ships && (
+          <div className="rounded-full border border-cyan-400/50 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-300">
+            🚢 Ships layer active
+          </div>
+        )}
+  
+        {layers.flights && (
+          <div className="rounded-full border border-purple-400/50 bg-purple-400/10 px-3 py-2 text-xs font-semibold text-purple-300">
+            ✈️ Flights layer active
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 export default function Home() {
