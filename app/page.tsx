@@ -159,20 +159,9 @@ function MauritiusMap({
         "h-5 w-5 rounded-full bg-cyan-400 border-2 border-white shadow-[0_0_18px_rgba(0,229,255,0.9)] cursor-pointer";
 
       markerElement.onclick = () => onSelectCamera(camera);
-
       new mapboxgl.Marker(markerElement)
-  .setLngLat([camera.lng, camera.lat])
-  .setPopup(
-    new mapboxgl.Popup({ offset: 25 }).setHTML(
-      "<strong>" +
-        camera.name +
-        "</strong><br/>" +
-        camera.location +
-        "<br/>Source: " +
-        camera.source
-    )
-  )
-  .addTo(map);
+    .setLngLat([camera.lng, camera.lat])
+    .addTo(map);
     });
 
     return () => {
