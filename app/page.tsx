@@ -132,8 +132,79 @@ function MauritiusMap({
 }: {
   onSelectCamera: (camera: any) => void;
 }) {
-  const mapContainer = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const mapContainer = useRef<HTMLDivElement>(null);
+
+  const zoomToPortLouis = () => {
+    if (!mapRef.current) return;
+
+    mapRef.current.flyTo({
+      center: [57.5012, -20.1613],
+      zoom: 13.5,
+      pitch: 50,
+      bearing: -20,
+      duration: 1500,
+    });
+  };
+
+  const showAllCameras = () => {
+    if (!mapRef.current) return;
+
+    mapRef.current.flyTo({
+      center: [57.5522, -20.3484],
+      zoom: 9.1,
+      pitch: 45,
+      bearing: -15,
+      duration: 1500,
+    });
+  };
+  const rotateLeft = () => {
+    if (!mapRef.current) return;
+
+    mapRef.current.easeTo({
+      bearing: mapRef.current.getBearing() - 30,
+      duration: 800,
+    });
+  };
+
+  const rotateRight = () => {
+    if (!mapRef.current) return;
+
+    mapRef.current.easeTo({
+      bearing: mapRef.current.getBearing() + 30,
+      duration: 800,
+    });
+  };
+
+  const increaseAngle = () => {
+    if (!mapRef.current) return;
+
+    mapRef.current.easeTo({
+      pitch: Math.min(mapRef.current.getPitch() + 10, 70),
+      duration: 800,
+    });
+  };
+
+  const decreaseAngle = () => {
+    if (!mapRef.current) return;
+
+    mapRef.current.easeTo({
+      pitch: Math.max(mapRef.current.getPitch() - 10, 0),
+      duration: 800,
+    });
+  };
+
+  const resetView = () => {
+    if (!mapRef.current) return;
+
+    mapRef.current.easeTo({
+      bearing: 0,
+      pitch: 45,
+      zoom: 9.1,
+      center: [57.5522, -20.3484],
+      duration: 1000,
+    });
+  };
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
@@ -170,7 +241,75 @@ function MauritiusMap({
     };
   }, [onSelectCamera]);
 
-  return <div ref={mapContainer} className="h-full w-full rounded-2xl" />;
+  return (
+    <div className="relative h-full w-full rounded-2xl overflow-hidden">
+      <div ref={mapContainer} className="h-full w-full rounded-2xl" />
+  
+      <div className="absolute top-5 left-5 z-10 flex flex-wrap gap-2">
+  <button
+    onClick={zoomToPortLouis}
+    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+  >
+    Zoom Port Louis
+  </button>
+
+  <button
+    onClick={showAllCameras}
+    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+  >
+    Show All
+  </button>
+
+  <button
+    onClick={rotateLeft}
+    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+  >
+    Rotate Left
+  </button>
+
+  <button
+    onClick={rotateRight}
+    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+  >
+    Rotate Right
+  </button>
+
+  <button
+    onClick={increaseAngle}
+    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+  >
+    Angle +
+  </button>
+
+  <button
+    onClick={decreaseAngle}
+    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+  >
+    Angle -
+  </button>
+
+  <button
+    onClick={resetView}
+    className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
+  >
+    Reset
+  </button>
+</div>
+        <button
+          onClick={zoomToPortLouis}
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-4 py-2 text-xs font-semibold text-cyan-300 shadow-[0_0_18px_rgba(0,229,255,0.25)]"
+        >
+          Zoom to Port Louis
+        </button>
+  
+        <button
+          onClick={showAllCameras}
+          className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-4 py-2 text-xs font-semibold text-cyan-300 shadow-[0_0_18px_rgba(0,229,255,0.25)]"
+        >
+          Show All Cameras
+        </button>
+      </div>
+  );
 }
 export default function Home() {
   const [selectedCamera, setSelectedCamera] = useState<any>(null);
