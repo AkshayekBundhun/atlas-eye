@@ -143,6 +143,9 @@ function MauritiusMap({
     ships: false,
     flights: false,
   });
+
+  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
+  
   
   const toggleLayer = (layer: keyof typeof layers) => {
     setLayers((prev) => ({
@@ -306,10 +309,47 @@ markersRef.current.push(marker);
             if (!flight.longitude || !flight.latitude) return;
     
             const planeElement = document.createElement("button");
+
+            const isSelected = selectedFlightId === flight.icao24;
+            
             planeElement.className =
-              "h-8 w-8 rounded-full border border-cyan-300 bg-[#07111F]/90 text-lg shadow-[0_0_20px_rgba(0,229,255,0.6)] cursor-pointer flex items-center justify-center";
-            planeElement.innerText = "✈️";
-            planeElement.style.transform =`rotate(${flight.heading || 0}deg)`;
+              "relative h-10 w-10 cursor-pointer border-0 bg-transparent";
+            
+            planeElement.innerHTML = `
+              <div style="
+                width: ${isSelected ? "42px" : "34px"};
+                height: ${isSelected ? "42px" : "34px"};
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                filter: drop-shadow(0 0 ${isSelected ? "16px" : "8px"} ${
+                  isSelected ? "rgba(255,200,87,0.95)" : "rgba(0,229,255,0.95)"
+                });
+                transition: all 0.2s ease;
+              ">
+                <svg width="${isSelected ? "38" : "30"}" height="${isSelected ? "38" : "30"}" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M12 2L14.2 9.2L22 12L14.2 14.8L12 22L9.8 14.8L2 12L9.8 9.2L12 2Z"
+                    fill="${isSelected ? "#FFC857" : "#7DEBFF"}"
+                    stroke="${isSelected ? "#FFF3C4" : "#D8FBFF"}"
+                    stroke-width="1.2"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M12 4.5V19.5"
+                    stroke="${isSelected ? "#7A4C00" : "#0B4F66"}"
+                    stroke-width="0.8"
+                    opacity="0.45"
+                  />
+                </svg>
+              </div>
+            `;
+            
+            planeElement.onclick = () => {
+              setSelectedFlightId(flight.icao24);
+            };
+            
+            planeElement.style.transform = `rotate(${flight.heading || 0}deg)`;
     
             const marker = new mapboxgl.Marker(planeElement)
   .setLngLat([flight.longitude, flight.latitude])
@@ -342,15 +382,12 @@ markersRef.current.push(marker);
       loadFlightsInView();
 
       mapRef.current.on("moveend", loadFlightsInView);
-      mapRef.current.on("zoomend", loadFlightsInView);
     
       return () => {
         mapRef.current?.off("moveend", loadFlightsInView);
-        mapRef.current?.off("zoomend", loadFlightsInView);
         clearFlightMarkers();
       };
-    }, [layers.flights]);
-  
+    }, [layers.flights, selectedFlightId]);  
   return (
     <div className="relative h-full w-full rounded-2xl overflow-hidden">
       <div ref={mapContainer} className="h-full w-full rounded-2xl" />
