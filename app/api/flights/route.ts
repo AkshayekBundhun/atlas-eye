@@ -18,13 +18,54 @@ export async function GET(request: Request) {
     });
 
     if (!response.ok) {
-      return NextResponse.json(
-        {
-          error: "OpenSky request failed",
-          status: response.status,
+      const centerLat = (Number(lamin) + Number(lamax)) / 2;
+      const centerLon = (Number(lomin) + Number(lomax)) / 2;
+    
+      const backupUrl = `https://api.airplanes.live/v2/point/${centerLat}/${centerLon}/250`;
+    
+      const backupResponse = await fetch(backupUrl, {
+        headers: {
+          Accept: "application/json",
         },
-        { status: response.status }
-      );
+      });
+    
+      if (!backupResponse.ok) {
+        return NextResponse.json(
+          {
+            error: "Flight requests failed",
+            primarySource: "OpenSky Network",
+            primaryStatus: response.status,
+            backupSource: "Airplanes.live",
+            backupStatus: backupResponse.status,
+          },
+          { status: backupResponse.status }
+        );
+      }
+    
+      const backupData = await backupResponse.json();
+    
+      const flights =
+        backupData.ac?.slice(0, 500).map((aircraft: any) => ({
+          icao24: aircraft.hex,
+          callsign: aircraft.flight?.trim() || aircraft.r || "Unknown",
+          originCountry: aircraft.country || "Unknown",
+          longitude: aircraft.lon,
+          latitude: aircraft.lat,
+          altitude: aircraft.alt_baro === "ground" ? 0 : aircraft.alt_baro,
+          onGround: aircraft.alt_baro === "ground",
+          velocity: aircraft.gs ? aircraft.gs * 0.514444 : null,
+          heading: aircraft.track,
+          verticalRate: aircraft.baro_rate,
+        })) || [];
+    
+      return NextResponse.json({
+        source: "Airplanes.live",
+        fallbackFrom: "OpenSky Network",
+        count: flights.length,
+        bounds: { lamin, lomin, lamax, lomax },
+        updatedAt: new Date().toISOString(),
+        flights,
+      });
     }
 
     const data = await response.json();
