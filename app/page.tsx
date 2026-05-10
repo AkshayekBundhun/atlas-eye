@@ -129,8 +129,10 @@ const alerts = [
 ];
 function MauritiusMap({
   onSelectCamera,
+  onFlightCountChange,
 }: {
   onSelectCamera: (camera: any) => void;
+  onFlightCountChange: (count: number) => void;
 }) {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -305,6 +307,7 @@ markersRef.current.push(marker);
           );
     
           const data = await response.json();
+          onFlightCountChange(data.flights?.length || 0);
     
           setFlightStatus({
             count: data.flights?.length || 0,
@@ -567,7 +570,7 @@ return () => {
 }
 export default function Home() {
   const [selectedCamera, setSelectedCamera] = useState<any>(null);
-
+  const [liveFlightCount, setLiveFlightCount] = useState(0);
   return (
     <main className="min-h-screen bg-[#050B14] text-white">
       {/* Top Bar */}
@@ -664,7 +667,10 @@ export default function Home() {
                 </div>
 
                 <div className="absolute inset-0">
-  <MauritiusMap onSelectCamera={setSelectedCamera} />
+                <MauritiusMap
+  onSelectCamera={setSelectedCamera}
+  onFlightCountChange={setLiveFlightCount}
+/>
 </div>
 
                 <div className="absolute bottom-5 left-5 right-5 h-16 rounded-xl bg-[#07111F]/90 border border-cyan-500/20 flex items-center px-5 gap-4">
@@ -684,7 +690,8 @@ export default function Home() {
                   ["Active Alerts", "12", "Security alerts"],
                   ["Weather", "24°C", "Partly cloudy"],
                   ["Ships", "36", "Tracked vessels"],
-                  ["Flights", "18", "Visible aircraft"],
+                  ["Flights", String(liveFlightCount), "Visible aircraft"],
+                  
                 ].map(([title, number, desc]) => (
                   <div
                     key={title}
