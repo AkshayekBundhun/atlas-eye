@@ -151,7 +151,7 @@ function MauritiusMap({
     source: "OpenSky Network",
   });
 
-
+  const [flightRefreshKey, setFlightRefreshKey] = useState(0);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
   
   
@@ -305,8 +305,22 @@ markersRef.current.push(marker);
           const response = await fetch(
             `/api/flights?lamin=${south}&lomin=${west}&lamax=${north}&lomax=${east}`
           );
-    
+          
           const data = await response.json();
+          
+          if (!response.ok) {
+            console.warn("OpenSky request failed", data);
+          
+            onFlightCountChange(0);
+          
+            setFlightStatus({
+              count: 0,
+              lastUpdated: "Rate limited",
+              source: data.status === 429 ? "OpenSky rate limit" : "OpenSky Network",
+            });
+          
+            return;
+          }
           onFlightCountChange(data.flights?.length || 0);
     
           setFlightStatus({
@@ -423,7 +437,7 @@ return () => {
   mapRef.current?.off("moveend", scheduleFlightLoad);
   clearFlightMarkers();
 };
-}, [layers.flights]); 
+}, [layers.flights, flightRefreshKey]);
   return (
     <div className="relative h-full w-full rounded-2xl overflow-hidden">
       <div ref={mapContainer} className="h-full w-full rounded-2xl" />
@@ -478,6 +492,16 @@ return () => {
         >
           Reset
         </button>
+        <button
+  onClick={() => {
+    if (layers.flights) {
+      setFlightRefreshKey((prev) => prev + 1);
+    }
+  }}
+  className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-4 py-2 text-xs font-semibold text-cyan-300"
+>
+  Refresh Flights
+</button>
       </div>
   
       {/* Map layers panel */}
