@@ -143,6 +143,12 @@ function MauritiusMap({
     ships: false,
     flights: false,
   });
+  const [flightStatus, setFlightStatus] = useState({
+    count: 0,
+    lastUpdated: "Not loaded",
+    source: "OpenSky Network",
+  });
+
 
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
   
@@ -300,6 +306,12 @@ markersRef.current.push(marker);
     
           const data = await response.json();
     
+          setFlightStatus({
+            count: data.flights?.length || 0,
+            lastUpdated: new Date().toLocaleTimeString(),
+            source: data.source || "OpenSky Network",
+          });
+          
           if (!data.flights || data.flights.length === 0) {
             console.log("No live aircraft detected in this visible map area.");
             return;
@@ -342,8 +354,7 @@ markersRef.current.push(marker);
                     opacity="0.45"
                   />
                 </svg>
-              </div>
-            `;
+</div>            `;
             
             planeElement.onclick = () => {
               setSelectedFlightId(flight.icao24);
@@ -496,6 +507,36 @@ return () => {
       </div>
   
       {/* Active layer indicators */}
+      {/* Live Flight Status */}
+<div className="absolute bottom-20 right-5 z-10 w-56 rounded-2xl border border-cyan-500/30 bg-[#07111F]/90 p-4 text-left shadow-[0_0_20px_rgba(0,229,255,0.2)] backdrop-blur">
+  <p className="text-[10px] uppercase tracking-widest text-cyan-300">
+    Live Flight Status
+  </p>
+
+  <div className="mt-3 space-y-2 text-xs text-gray-300">
+    <p>
+      Layer:{" "}
+      <span className={layers.flights ? "text-green-300" : "text-gray-500"}>
+        {layers.flights ? "ON" : "OFF"}
+      </span>
+    </p>
+
+    <p>
+      Flights loaded:{" "}
+      <span className="text-cyan-300">{flightStatus.count}</span>
+    </p>
+
+    <p>
+      Updated:{" "}
+      <span className="text-cyan-300">{flightStatus.lastUpdated}</span>
+    </p>
+
+    <p>
+      Source:{" "}
+      <span className="text-cyan-300">{flightStatus.source}</span>
+    </p>
+  </div>
+</div>
       <div className="absolute bottom-5 left-5 z-10 flex flex-wrap gap-2">
         {layers.traffic && (
           <div className="rounded-full border border-yellow-400/50 bg-yellow-400/10 px-3 py-2 text-xs font-semibold text-yellow-300">
