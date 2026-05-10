@@ -274,8 +274,13 @@ function MauritiusMap({
     const selected = locations[country];
     if (!selected) return;
     setSelectedCountry(country);
-  
-    mapRef.current.flyTo({
+
+setLayers((prev) => ({
+  ...prev,
+  flights: true,
+}));
+
+mapRef.current.flyTo({
       center: selected.center,
       zoom: selected.zoom,
       pitch: selected.pitch,
@@ -283,6 +288,7 @@ function MauritiusMap({
       duration: 1800,
       essential: true,
     });
+    setFlightRefreshKey((prev) => prev + 1);
   };
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
