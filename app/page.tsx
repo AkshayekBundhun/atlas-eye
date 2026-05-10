@@ -145,6 +145,7 @@ function MauritiusMap({
     ships: false,
     flights: false,
   });
+  const [selectedCountry, setSelectedCountry] = useState("Mauritius");
   const [flightStatus, setFlightStatus] = useState({
     count: 0,
     lastUpdated: "Not loaded",
@@ -272,6 +273,7 @@ function MauritiusMap({
   
     const selected = locations[country];
     if (!selected) return;
+    setSelectedCountry(country);
   
     mapRef.current.flyTo({
       center: selected.center,
@@ -576,8 +578,13 @@ return () => {
       <button
   key={country}
   onClick={() => flyToCountry(country)}
-  className="flex w-full items-center justify-between rounded-xl border border-cyan-500/10 bg-white/5 px-3 py-2 text-left hover:border-cyan-400/50 hover:bg-cyan-400/10"
+  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition ${
+    selectedCountry === country
+      ? "border-cyan-400 bg-cyan-400/15 shadow-[0_0_18px_rgba(0,229,255,0.25)]"
+      : "border-cyan-500/10 bg-white/5 hover:border-cyan-400/50 hover:bg-cyan-400/10"
+  }`}
 >
+      
         <div className="flex items-center gap-3">
           <span className="text-lg">{flag}</span>
           <div>
