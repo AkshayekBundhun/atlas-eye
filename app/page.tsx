@@ -231,7 +231,57 @@ function MauritiusMap({
       duration: 1000,
     });
   };
-
+  const flyToCountry = (country: string) => {
+    if (!mapRef.current) return;
+  
+    const locations: Record<
+      string,
+      { center: [number, number]; zoom: number; pitch: number; bearing: number }
+    > = {
+      Mauritius: {
+        center: [57.5522, -20.3484],
+        zoom: 9.1,
+        pitch: 45,
+        bearing: -15,
+      },
+      "United States": {
+        center: [-98.5795, 39.8283],
+        zoom: 3.2,
+        pitch: 35,
+        bearing: 0,
+      },
+      India: {
+        center: [78.9629, 20.5937],
+        zoom: 4.2,
+        pitch: 35,
+        bearing: 0,
+      },
+      France: {
+        center: [2.2137, 46.2276],
+        zoom: 5.2,
+        pitch: 35,
+        bearing: 0,
+      },
+      Japan: {
+        center: [138.2529, 36.2048],
+        zoom: 5,
+        pitch: 35,
+        bearing: 0,
+      },
+    };
+  
+    const selected = locations[country];
+    if (!selected) return;
+  
+    mapRef.current.flyTo({
+      center: selected.center,
+      zoom: selected.zoom,
+      pitch: selected.pitch,
+      bearing: selected.bearing,
+      duration: 1800,
+      essential: true,
+    });
+  };
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
@@ -524,9 +574,10 @@ return () => {
       ["🇯🇵", "Japan", "East Asia"],
     ].map(([flag, country, region]) => (
       <button
-        key={country}
-        className="flex w-full items-center justify-between rounded-xl border border-cyan-500/10 bg-white/5 px-3 py-2 text-left hover:border-cyan-400/50 hover:bg-cyan-400/10"
-      >
+  key={country}
+  onClick={() => flyToCountry(country)}
+  className="flex w-full items-center justify-between rounded-xl border border-cyan-500/10 bg-white/5 px-3 py-2 text-left hover:border-cyan-400/50 hover:bg-cyan-400/10"
+>
         <div className="flex items-center gap-3">
           <span className="text-lg">{flag}</span>
           <div>
