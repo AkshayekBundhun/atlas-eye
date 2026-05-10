@@ -383,11 +383,33 @@ markersRef.current.push(marker);
 
       mapRef.current.on("moveend", loadFlightsInView);
     
-      return () => {
-        mapRef.current?.off("moveend", loadFlightsInView);
-        clearFlightMarkers();
-      };
-    }, [layers.flights, selectedFlightId]);  
+      let flightLoadTimer: ReturnType<typeof setTimeout> | null = null;
+
+const scheduleFlightLoad = () => {
+  if (flightLoadTimer) {
+    clearTimeout(flightLoadTimer);
+  }
+
+  flightLoadTimer = setTimeout(() => {
+    loadFlightsInView();
+  }, 2500);
+};
+
+// Load once when Flights layer is turned on
+scheduleFlightLoad();
+
+// Then load again only after user stops moving the map
+mapRef.current.on("moveend", scheduleFlightLoad);
+
+return () => {
+  if (flightLoadTimer) {
+    clearTimeout(flightLoadTimer);
+  }
+
+  mapRef.current?.off("moveend", scheduleFlightLoad);
+  clearFlightMarkers();
+};
+}, [layers.flights]); 
   return (
     <div className="relative h-full w-full rounded-2xl overflow-hidden">
       <div ref={mapContainer} className="h-full w-full rounded-2xl" />
