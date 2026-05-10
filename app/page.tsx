@@ -443,7 +443,7 @@ return () => {
       <div ref={mapContainer} className="h-full w-full rounded-2xl" />
   
       {/* Map movement controls */}
-      <div className="absolute top-5 left-5 z-10 flex flex-wrap gap-2">
+      <div className="absolute top-5 left-[520px] right-[360px] z-10 flex flex-wrap gap-2">
         <button
           onClick={zoomToPortLouis}
           className="rounded-lg border border-cyan-400 bg-[#07111F]/90 px-3 py-2 text-xs font-semibold text-cyan-300"
@@ -505,6 +505,41 @@ return () => {
       </div>
   
       {/* Map layers panel */}
+      {/* Country Selector */}
+<div className="absolute top-5 left-5 z-10 w-64 rounded-2xl border border-cyan-500/30 bg-[#07111F]/90 p-4 shadow-[0_0_25px_rgba(0,229,255,0.15)] backdrop-blur">
+  <p className="text-[10px] uppercase tracking-widest text-cyan-300">
+    Country Selector
+  </p>
+
+  <p className="mt-1 text-xs text-gray-400">
+    Select a region to monitor
+  </p>
+
+  <div className="mt-4 space-y-2">
+    {[
+      ["🇲🇺", "Mauritius", "Indian Ocean"],
+      ["🇺🇸", "United States", "North America"],
+      ["🇮🇳", "India", "South Asia"],
+      ["🇫🇷", "France", "Europe"],
+      ["🇯🇵", "Japan", "East Asia"],
+    ].map(([flag, country, region]) => (
+      <button
+        key={country}
+        className="flex w-full items-center justify-between rounded-xl border border-cyan-500/10 bg-white/5 px-3 py-2 text-left hover:border-cyan-400/50 hover:bg-cyan-400/10"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-lg">{flag}</span>
+          <div>
+            <p className="text-sm font-semibold text-white">{country}</p>
+            <p className="text-[10px] text-gray-400">{region}</p>
+          </div>
+        </div>
+
+        <span className="text-cyan-300">›</span>
+      </button>
+    ))}
+  </div>
+</div>
       <div className="absolute top-5 right-5 z-10 rounded-2xl border border-cyan-500/30 bg-[#07111F]/90 p-3 shadow-[0_0_20px_rgba(0,229,255,0.15)]">
         <p className="mb-2 text-[10px] uppercase tracking-widest text-cyan-300">
           Map Layers
