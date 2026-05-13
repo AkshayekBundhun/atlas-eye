@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 
 export const runtime = "nodejs";
@@ -40,6 +41,22 @@ type VesselAccumulator = Partial<AtlasShip> & {
   history: AtlasShip["history"];
 };
 
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Supabase environment variables are missing.");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
 function toNumber(value: unknown): number | undefined {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : undefined;
@@ -63,9 +80,7 @@ function formatEta(eta: any) {
     return "Unknown";
   }
 
-  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")} ${String(
-    hour
-  ).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function mapNavigationStatus(status: unknown): AtlasShip["status"] {
@@ -93,14 +108,19 @@ function mapShipType(shipType: unknown): AtlasShip["type"] {
 
 function getLocationLabel(lat?: number, lon?: number) {
   if (lat === undefined || lon === undefined) return "Unknown AIS position";
-
   return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
 }
 
 function normalizeMessage(message: any, vessels: Map<string, VesselAccumulator>) {
   const meta = message?.MetaData || message?.Metadata || {};
   const payload = message?.Message || {};
-  const position = payload.PositionReport || payload.StandardClassBPositionReport || payload.ExtendedClassBPositionReport;
+
+  const position =
+    payload.PositionReport ||
+    payload.StandardClassBPositionReport ||
+    payload.ExtendedClassBPositionReport ||
+    payload.LongRangeAisBroadcastMessage;
+
   const staticData = payload.ShipStaticData;
   const messageType = message?.MessageType || "AIS Message";
 
@@ -127,19 +147,23 @@ function normalizeMessage(message: any, vessels: Map<string, VesselAccumulator>)
     history: [],
   };
 
-  const shipName = cleanText(meta.ShipName, existing.name || "Unknown Vessel");
+  const shipName = cleanText(meta.ShipName, existing.name || `MMSI ${mmsi}`);
   const updatedAt = cleanText(meta.time_utc, new Date().toISOString());
 
   if (lat !== undefined && lon !== undefined) {
     const lastPoint = existing.route[existing.route.length - 1];
     const point: [number, number] = [lon, lat];
 
-    if (!lastPoint || Math.abs(lastPoint[0] - lon) > 0.00001 || Math.abs(lastPoint[1] - lat) > 0.00001) {
-      existing.route = [...existing.route.slice(-11), point];
+    if (
+      !lastPoint ||
+      Math.abs(lastPoint[0] - lon) > 0.00001 ||
+      Math.abs(lastPoint[1] - lat) > 0.00001
+    ) {
+      existing.route = [...existing.route.slice(-99), point];
     }
 
     existing.history = [
-      ...existing.history.slice(-5),
+      ...existing.history.slice(-25),
       {
         time: new Date().toLocaleTimeString([], {
           hour: "2-digit",
@@ -161,7 +185,10 @@ function normalizeMessage(message: any, vessels: Map<string, VesselAccumulator>)
 
   existing.name = shipName;
   existing.status = mapNavigationStatus(position?.NavigationalStatus ?? existing.status);
-  existing.speed = position?.Sog !== undefined ? `${Number(position.Sog).toFixed(1)} kn` : existing.speed || "Unknown";
+  existing.speed =
+    position?.Sog !== undefined
+      ? `${Number(position.Sog).toFixed(1)} kn`
+      : existing.speed || "Unknown";
   existing.heading =
     position?.TrueHeading !== undefined
       ? `${position.TrueHeading}°`
@@ -169,7 +196,10 @@ function normalizeMessage(message: any, vessels: Map<string, VesselAccumulator>)
       ? `${position.Cog}° COG`
       : existing.heading || "Unknown";
   existing.destination = cleanText(staticData?.Destination, existing.destination || "Unknown");
-  existing.eta = formatEta(staticData?.Eta) !== "Unknown" ? formatEta(staticData?.Eta) : existing.eta || "Unknown";
+  existing.eta =
+    formatEta(staticData?.Eta) !== "Unknown"
+      ? formatEta(staticData?.Eta)
+      : existing.eta || "Unknown";
   existing.imo = staticData?.ImoNumber ? String(staticData.ImoNumber) : existing.imo;
   existing.type = mapShipType(staticData?.Type ?? existing.type);
   existing.source = "AISstream.io";
@@ -185,6 +215,7 @@ async function collectAIS({
   lamax,
   lomax,
   durationMs,
+  debug,
 }: {
   apiKey: string;
   lamin: number;
@@ -192,11 +223,26 @@ async function collectAIS({
   lamax: number;
   lomax: number;
   durationMs: number;
+  debug: boolean;
 }) {
-  return new Promise<AtlasShip[]>((resolve, reject) => {
+  return new Promise<{
+    ships: AtlasShip[];
+    framesReceived: number;
+    firstMessageTypes: string[];
+    firstRawMessages: any[];
+    socketClosed: boolean;
+  }>((resolve, reject) => {
     const vessels = new Map<string, VesselAccumulator>();
-    const socket = new WebSocket("wss://stream.aisstream.io/v0/stream");
+    const socket = new WebSocket("wss://stream.aisstream.io/v0/stream", {
+      handshakeTimeout: 15000,
+      perMessageDeflate: false,
+    });
+
     let finished = false;
+    let framesReceived = 0;
+    let socketClosed = false;
+    const firstMessageTypes: string[] = [];
+    const firstRawMessages: any[] = [];
 
     const finish = () => {
       if (finished) return;
@@ -205,7 +251,7 @@ async function collectAIS({
       try {
         socket.close();
       } catch {
-        // ignore close errors
+        // Ignore close errors.
       }
 
       const ships = Array.from(vessels.values())
@@ -230,25 +276,25 @@ async function collectAIS({
           history: ship.history,
         })) as AtlasShip[];
 
-      resolve(ships);
+      resolve({
+        ships,
+        framesReceived,
+        firstMessageTypes,
+        firstRawMessages,
+        socketClosed,
+      });
     };
 
     const timer = setTimeout(finish, durationMs);
 
     socket.on("open", () => {
       const subscription = {
-        APIKey: apiKey,
+        Apikey: apiKey,
         BoundingBoxes: [
           [
             [lamin, lomin],
             [lamax, lomax],
           ],
-        ],
-        FilterMessageTypes: [
-          "PositionReport",
-          "StandardClassBPositionReport",
-          "ExtendedClassBPositionReport",
-          "ShipStaticData",
         ],
       };
 
@@ -257,8 +303,17 @@ async function collectAIS({
 
     socket.on("message", (data) => {
       try {
+        framesReceived += 1;
         const raw = typeof data === "string" ? data : data.toString("utf8");
         const message = JSON.parse(raw);
+
+        if (firstMessageTypes.length < 10) {
+          firstMessageTypes.push(message?.MessageType || "Unknown");
+        }
+
+        if (debug && firstRawMessages.length < 3) {
+          firstRawMessages.push(message);
+        }
 
         if (message?.error) {
           clearTimeout(timer);
@@ -284,9 +339,75 @@ async function collectAIS({
     });
 
     socket.on("close", () => {
+      socketClosed = true;
       clearTimeout(timer);
       finish();
     });
+  });
+}
+
+async function saveShipsToSupabase(ships: AtlasShip[], debugMessage: string) {
+  const supabase = getSupabaseAdmin();
+  const now = new Date().toISOString();
+
+  if (ships.length === 0) {
+    await supabase.from("collector_logs").insert({
+      provider: "AISstream.io",
+      status: "success",
+      message: debugMessage || "Collector ran but received no ships.",
+      records_collected: 0,
+    });
+
+    return;
+  }
+
+  const latestRows = ships.map((ship) => ({
+    mmsi: ship.mmsi || ship.id.replace("ais-", ""),
+    imo: ship.imo || null,
+    name: ship.name,
+    type: ship.type,
+    status: ship.status,
+    speed: ship.speed,
+    heading: ship.heading,
+    destination: ship.destination,
+    eta: ship.eta,
+    lat: ship.lat,
+    lng: ship.lng,
+    source: ship.source,
+    last_seen: ship.updatedAt || now,
+    updated_at: now,
+  }));
+
+  const { error: vesselsError } = await supabase
+    .from("vessels")
+    .upsert(latestRows, { onConflict: "mmsi" });
+
+  if (vesselsError) throw vesselsError;
+
+  const positionRows = ships.map((ship) => ({
+    mmsi: ship.mmsi || ship.id.replace("ais-", ""),
+    vessel_name: ship.name,
+    lat: ship.lat,
+    lng: ship.lng,
+    speed: ship.speed,
+    heading: ship.heading,
+    status: ship.status,
+    destination: ship.destination,
+    source: ship.source,
+    timestamp: ship.updatedAt || now,
+  }));
+
+  const { error: positionsError } = await supabase
+    .from("vessel_positions")
+    .insert(positionRows);
+
+  if (positionsError) throw positionsError;
+
+  await supabase.from("collector_logs").insert({
+    provider: "AISstream.io",
+    status: "success",
+    message: `Collected and stored ${ships.length} vessel(s).`,
+    records_collected: ships.length,
   });
 }
 
@@ -307,35 +428,68 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
 
-  const lamin = Number(searchParams.get("lamin") || "-21.2");
-  const lomin = Number(searchParams.get("lomin") || "56.8");
-  const lamax = Number(searchParams.get("lamax") || "-19.5");
-  const lomax = Number(searchParams.get("lomax") || "58.2");
-  const durationMs = Math.min(Number(searchParams.get("durationMs") || "8000"), 15000);
+  const lamin = Number(searchParams.get("lamin") || "-90");
+  const lomin = Number(searchParams.get("lomin") || "-180");
+  const lamax = Number(searchParams.get("lamax") || "90");
+  const lomax = Number(searchParams.get("lomax") || "180");
+  const debug = searchParams.get("debug") === "1";
+
+  const durationMs = Math.min(
+    Math.max(Number(searchParams.get("durationMs") || "30000"), 3000),
+    60000
+  );
 
   try {
-    const ships = await collectAIS({
+    const result = await collectAIS({
       apiKey,
       lamin,
       lomin,
       lamax,
       lomax,
       durationMs,
+      debug,
     });
 
+    const debugMessage = `Collector completed. Frames: ${result.framesReceived}. Message types: ${
+      result.firstMessageTypes.join(", ") || "none"
+    }. Socket closed: ${result.socketClosed ? "yes" : "no"}.`;
+
+    await saveShipsToSupabase(result.ships, debugMessage);
+
     return NextResponse.json({
-      source: "AISstream.io",
-      count: ships.length,
+      source: "AISstream.io + Supabase",
+      count: result.ships.length,
+      framesReceived: result.framesReceived,
+      firstMessageTypes: result.firstMessageTypes,
       bounds: { lamin, lomin, lamax, lomax },
       collectionMs: durationMs,
       updatedAt: new Date().toISOString(),
-      ships,
+      ships: result.ships,
+      debug: debug
+        ? {
+            firstRawMessages: result.firstRawMessages,
+            note:
+              "If framesReceived is 0 in busy regions/full-world after 30-60 seconds, AISstream is not delivering frames to this key/session.",
+          }
+        : undefined,
     });
   } catch (error) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("collector_logs").insert({
+        provider: "AISstream.io",
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not collect AIS data",
+        records_collected: 0,
+      });
+    } catch {
+      // Ignore logging failure.
+    }
+
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Could not collect AIS data",
-        source: "AISstream.io",
+        source: "AISstream.io + Supabase",
         count: 0,
         ships: [],
       },

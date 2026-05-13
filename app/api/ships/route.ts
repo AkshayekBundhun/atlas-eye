@@ -93,14 +93,18 @@ function mapShipType(shipType: unknown): AtlasShip["type"] {
 
 function getLocationLabel(lat?: number, lon?: number) {
   if (lat === undefined || lon === undefined) return "Unknown AIS position";
-
   return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
 }
 
 function normalizeMessage(message: any, vessels: Map<string, VesselAccumulator>) {
   const meta = message?.MetaData || message?.Metadata || {};
   const payload = message?.Message || {};
-  const position = payload.PositionReport || payload.StandardClassBPositionReport || payload.ExtendedClassBPositionReport;
+
+  const position =
+    payload.PositionReport ||
+    payload.StandardClassBPositionReport ||
+    payload.ExtendedClassBPositionReport;
+
   const staticData = payload.ShipStaticData;
   const messageType = message?.MessageType || "AIS Message";
 
@@ -127,14 +131,18 @@ function normalizeMessage(message: any, vessels: Map<string, VesselAccumulator>)
     history: [],
   };
 
-  const shipName = cleanText(meta.ShipName, existing.name || "Unknown Vessel");
+  const shipName = cleanText(meta.ShipName, existing.name || `MMSI ${mmsi}`);
   const updatedAt = cleanText(meta.time_utc, new Date().toISOString());
 
   if (lat !== undefined && lon !== undefined) {
     const lastPoint = existing.route[existing.route.length - 1];
     const point: [number, number] = [lon, lat];
 
-    if (!lastPoint || Math.abs(lastPoint[0] - lon) > 0.00001 || Math.abs(lastPoint[1] - lat) > 0.00001) {
+    if (
+      !lastPoint ||
+      Math.abs(lastPoint[0] - lon) > 0.00001 ||
+      Math.abs(lastPoint[1] - lat) > 0.00001
+    ) {
       existing.route = [...existing.route.slice(-11), point];
     }
 
@@ -161,7 +169,8 @@ function normalizeMessage(message: any, vessels: Map<string, VesselAccumulator>)
 
   existing.name = shipName;
   existing.status = mapNavigationStatus(position?.NavigationalStatus ?? existing.status);
-  existing.speed = position?.Sog !== undefined ? `${Number(position.Sog).toFixed(1)} kn` : existing.speed || "Unknown";
+  existing.speed =
+    position?.Sog !== undefined ? `${Number(position.Sog).toFixed(1)} kn` : existing.speed || "Unknown";
   existing.heading =
     position?.TrueHeading !== undefined
       ? `${position.TrueHeading}°`
@@ -169,7 +178,10 @@ function normalizeMessage(message: any, vessels: Map<string, VesselAccumulator>)
       ? `${position.Cog}° COG`
       : existing.heading || "Unknown";
   existing.destination = cleanText(staticData?.Destination, existing.destination || "Unknown");
-  existing.eta = formatEta(staticData?.Eta) !== "Unknown" ? formatEta(staticData?.Eta) : existing.eta || "Unknown";
+  existing.eta =
+    formatEta(staticData?.Eta) !== "Unknown"
+      ? formatEta(staticData?.Eta)
+      : existing.eta || "Unknown";
   existing.imo = staticData?.ImoNumber ? String(staticData.ImoNumber) : existing.imo;
   existing.type = mapShipType(staticData?.Type ?? existing.type);
   existing.source = "AISstream.io";
@@ -205,7 +217,7 @@ async function collectAIS({
       try {
         socket.close();
       } catch {
-        // ignore close errors
+        // Ignore close errors.
       }
 
       const ships = Array.from(vessels.values())
@@ -311,7 +323,11 @@ export async function GET(request: Request) {
   const lomin = Number(searchParams.get("lomin") || "56.8");
   const lamax = Number(searchParams.get("lamax") || "-19.5");
   const lomax = Number(searchParams.get("lomax") || "58.2");
-  const durationMs = Math.min(Number(searchParams.get("durationMs") || "8000"), 15000);
+
+  const durationMs = Math.min(
+    Math.max(Number(searchParams.get("durationMs") || "8000"), 3000),
+    15000
+  );
 
   try {
     const ships = await collectAIS({
