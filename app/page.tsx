@@ -1378,69 +1378,98 @@ function CommandMap({
         </div>
       </div>
 
-      <div className="absolute bottom-24 right-4 w-64 rounded-lg border border-cyan-500/20 bg-[#07111F]/90 p-4 backdrop-blur">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">
-          Live Flight Feed
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-3 text-[10px] text-slate-400">
-          <div>
-            <p>Status</p>
-            <p
-              className={cn(
-                "font-bold",
-                flightFeedStatus.status === "Live"
-                  ? "text-green-300"
-                  : flightFeedStatus.status === "Error"
-                  ? "text-red-300"
-                  : "text-yellow-300"
-              )}
-            >
-              {flightFeedStatus.status}
-            </p>
-          </div>
-          <div>
-            <p>Updated</p>
-            <p className="font-bold text-white">{flightFeedStatus.updatedAt}</p>
-          </div>
-          <div className="col-span-2">
-            <p>Source</p>
-            <p className="font-bold text-cyan-300">{flightFeedStatus.source}</p>
-          </div>
-          <div className="col-span-2">
-            <p>Message</p>
-            <p className="font-bold text-white">{flightFeedStatus.message}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="absolute bottom-24 left-4 rounded-lg border border-cyan-500/20 bg-[#07111F]/90 p-4 backdrop-blur">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">
-          Weather Overview
-        </p>
-        <p className="mt-3 text-xs text-slate-400">Port Louis, MU</p>
-        <div className="mt-1 flex items-center gap-3">
-          <span className="text-5xl font-light text-white">24°</span>
-          <span className="text-4xl">⛅</span>
-        </div>
-        <p className="text-xs text-slate-400">Partly Cloudy</p>
-        <div className="mt-4 grid grid-cols-3 gap-4 text-[10px] text-slate-400">
-          <div>
-            <p>Humidity</p>
-            <p className="text-white">78%</p>
-          </div>
-          <div>
-            <p>Wind</p>
-            <p className="text-white">18 km/h</p>
-          </div>
-          <div>
-            <p>Rain</p>
-            <p className="text-white">0 mm</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
+
+
+function WeatherOverviewCard() {
+  return (
+    <Card className="h-[150px] p-4">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">
+        Weather Overview
+      </p>
+
+      <div className="mt-3 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-xs text-slate-400">Port Louis, MU</p>
+          <div className="mt-1 flex items-center gap-3">
+            <span className="text-5xl font-light text-white">24°</span>
+            <span className="text-4xl">⛅</span>
+          </div>
+          <p className="text-xs text-slate-400">Partly Cloudy</p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4 text-[10px] text-slate-400">
+          <div>
+            <p>Humidity</p>
+            <p className="mt-1 text-sm font-bold text-white">78%</p>
+          </div>
+          <div>
+            <p>Wind</p>
+            <p className="mt-1 text-sm font-bold text-white">18 km/h</p>
+          </div>
+          <div>
+            <p>Rain</p>
+            <p className="mt-1 text-sm font-bold text-white">0 mm</p>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function FlightFeedStatusCard({
+  flightFeedStatus,
+}: {
+  flightFeedStatus: FlightFeedStatus;
+}) {
+  return (
+    <Card className="h-[150px] p-4">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">
+        Live Flight Feed
+      </p>
+
+      <div className="mt-3 grid grid-cols-4 gap-3 text-[10px] text-slate-400">
+        <div>
+          <p>Status</p>
+          <p
+            className={cn(
+              "mt-1 text-sm font-bold",
+              flightFeedStatus.status === "Live"
+                ? "text-green-300"
+                : flightFeedStatus.status === "Error"
+                ? "text-red-300"
+                : "text-yellow-300"
+            )}
+          >
+            {flightFeedStatus.status}
+          </p>
+        </div>
+
+        <div>
+          <p>Updated</p>
+          <p className="mt-1 text-sm font-bold text-white">{flightFeedStatus.updatedAt}</p>
+        </div>
+
+        <div className="col-span-2">
+          <p>Source</p>
+          <p className="mt-1 truncate text-sm font-bold text-cyan-300">
+            {flightFeedStatus.source}
+          </p>
+        </div>
+
+        <div className="col-span-4">
+          <p>Message</p>
+          <p className="mt-1 line-clamp-2 font-bold text-white">
+            {flightFeedStatus.message}
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 
 function LayersPanel({
   layers,
@@ -3255,7 +3284,9 @@ export default function Home() {
 
           <div className="ml-[132px] pt-16">
             <div className="grid grid-cols-12 gap-3 p-3">
-              <Card className="col-span-7 h-[690px]">
+              <div className="col-span-12 grid grid-cols-[minmax(0,1fr)_300px] gap-3">
+                <div className="space-y-3">
+                  <Card className="h-[690px]">
                 <SectionLabel number="1" title="Main Dashboard" />
 
                 <LayersPanel layers={layers} toggleLayer={toggleLayer} />
@@ -3276,83 +3307,82 @@ export default function Home() {
                   setShipFeedStatus={setShipFeedStatus}
                 />
 
-                <div className="absolute right-3 top-16 z-20 w-[210px] space-y-3">
-                  <Card className="p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-bold uppercase text-white">AI Insights</p>
-                        <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[9px] text-cyan-300">
-                          BETA
-                        </span>
-                      </div>
-                      <span className="text-slate-400">⌃</span>
-                    </div>
-
-                    <p className="text-xs leading-5 text-slate-300">
-                      Traffic congestion detected in Port Louis South.
-                      <br />
-                      <br />
-                      <span className="text-cyan-300">{highTrafficCount} cameras</span> show
-                      high traffic density.
-                      <br />
-                      <br />
-                      <span className="text-cyan-300">{liveFlightCount} flights</span> visible from {flightFeedStatus.source}.
-                      <br />
-                      <br />
-                      Maritime: <span className="text-cyan-300">{maritimeSummary.total} vessels</span> tracked, <span className="text-yellow-300">{maritimeSummary.deviating} deviating</span>.
-                      <br />
-                      <br />
-                      Weather is clear.
-                    </p>
-
-                    <div className="mt-4 space-y-2">
-                      <button className="w-full rounded-md border border-cyan-400/30 bg-cyan-400/10 py-2 text-xs text-cyan-300">
-                        View Cameras ({highTrafficCount})
-                      </button>
-                      <button className="w-full rounded-md border border-cyan-400/30 bg-cyan-400/10 py-2 text-xs text-cyan-300">
-                        Generate Report
-                      </button>
-                      <button className="w-full rounded-md border border-cyan-400/30 bg-cyan-400/10 py-2 text-xs text-cyan-300">
-                        Share Update
-                      </button>
-                    </div>
                   </Card>
 
-                  <Card className="p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <p className="text-xs font-bold uppercase text-white">
-                        Live Alerts ({activeAlertsCount})
-                      </p>
-                      <span className="text-slate-400">⌃</span>
-                    </div>
-
-                    <div className="space-y-3">
-                      {activeAlerts.slice(0, 3).map((alert) => (
-                        <div key={alert.type} className="flex gap-2">
-                          <span>{alert.icon}</span>
-                          <div className="flex-1">
-                            <p className="text-[11px] text-white">{alert.type}</p>
-                            <p className="text-[10px] text-slate-500">{alert.location}</p>
-                          </div>
-                          <span className="text-[9px] text-slate-500">{alert.time}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    <button className="mt-4 w-full rounded-md border border-cyan-400/30 bg-cyan-400/10 py-2 text-xs text-cyan-300">
-                      View All Alerts
-                    </button>
-                  </Card>
+                  <div className="grid grid-cols-2 gap-3">
+                    <WeatherOverviewCard />
+                    <FlightFeedStatusCard flightFeedStatus={flightFeedStatus} />
+                  </div>
                 </div>
-              </Card>
 
-              <div className="col-span-5 space-y-3">
-                <CameraManagement selectedCamera={selectedCamera} setSelectedCamera={setSelectedCamera} />
-                <LiveCameraView camera={selectedCamera} />
+              <div className="space-y-3">
+                <Card className="h-[330px] p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase text-white">AI Insights</p>
+                      <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[9px] text-cyan-300">
+                        BETA
+                      </span>
+                    </div>
+                    <span className="text-slate-400">⌃</span>
+                  </div>
+
+                  <p className="text-xs leading-5 text-slate-300">
+                    Traffic congestion detected in Port Louis South.
+                    <br />
+                    <br />
+                    <span className="text-cyan-300">{highTrafficCount} cameras</span> show
+                    high traffic density.
+                    <br />
+                    <br />
+                    <span className="text-cyan-300">{liveFlightCount} flights</span> visible from {flightFeedStatus.source}.
+                    <br />
+                    <br />
+                    Maritime: <span className="text-cyan-300">{maritimeSummary.total} vessels</span> tracked, <span className="text-yellow-300">{maritimeSummary.deviating} deviating</span>.
+                    <br />
+                    <br />
+                    Weather is clear.
+                  </p>
+
+                  <div className="mt-4 space-y-2">
+                    <button className="w-full rounded-md border border-cyan-400/30 bg-cyan-400/10 py-2 text-xs text-cyan-300">
+                      View Cameras ({highTrafficCount})
+                    </button>
+                    <button className="w-full rounded-md border border-cyan-400/30 bg-cyan-400/10 py-2 text-xs text-cyan-300">
+                      Generate Report
+                    </button>
+                    <button className="w-full rounded-md border border-cyan-400/30 bg-cyan-400/10 py-2 text-xs text-cyan-300">
+                      Share Update
+                    </button>
+                  </div>
+                </Card>
+
+                <Card className="h-[345px] p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase text-white">
+                      Live Alerts ({activeAlertsCount})
+                    </p>
+                    <span className="text-slate-400">⌃</span>
+                  </div>
+
+                  <div className="max-h-[245px] space-y-3 overflow-y-auto pr-1">
+                    {activeAlerts.slice(0, 5).map((alert) => (
+                      <div key={`${alert.type}-${alert.location}`} className="flex gap-2 rounded-md border border-cyan-500/10 bg-[#081625] p-2">
+                        <span>{alert.icon}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] text-white">{alert.type}</p>
+                          <p className="truncate text-[10px] text-slate-500">{alert.location}</p>
+                        </div>
+                        <span className="text-[9px] text-slate-500">{alert.time}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button className="mt-4 w-full rounded-md border border-cyan-400/30 bg-cyan-400/10 py-2 text-xs text-cyan-300">
+                    View All Alerts
+                  </button>
+                </Card>
               </div>
-
-              <div className="col-span-3">
-                <AlertsDashboard />
               </div>
 
               <div className="col-span-3">
@@ -3388,6 +3418,14 @@ export default function Home() {
 
               <div className="col-span-12">
                 <FeatureStrip />
+              </div>
+
+              <div className="col-span-6">
+                <CameraManagement selectedCamera={selectedCamera} setSelectedCamera={setSelectedCamera} />
+              </div>
+
+              <div className="col-span-6">
+                <LiveCameraView camera={selectedCamera} />
               </div>
             </div>
           </div>
