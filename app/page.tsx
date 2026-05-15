@@ -127,6 +127,33 @@ type ShipFeedStatus = {
   message: string;
 };
 
+type MapSearchTarget = {
+  lng: number;
+  lat: number;
+  zoom?: number;
+  label: string;
+};
+
+const customPlaces = [
+  {
+    name: "Al Kahf Centre",
+    aliases: [
+      "Al Kahf Centre",
+      "Al-Kahf Centre",
+      "Al Kahf Centre Vacoas",
+      "Al Kahf Centre La Caverne",
+      "Al Kahf Centre Sociale Islamique",
+      "MFWJ+GQ4",
+      "MFWJ GQ4",
+      "La Caverne Rd No 2",
+    ],
+    address: "La Caverne Rd No 2, Vacoas-Phoenix, Mauritius",
+    lng: 57.4819375,
+    lat: -20.3036875,
+    zoom: 17.2,
+  },
+];
+
 const ships: Ship[] = [
   {
     id: "ship-001",
@@ -406,14 +433,20 @@ const users: UserRow[] = [
   },
 ];
 
-const sidebarItems = [
-  ["▣", "Dashboard"],
-  ["◉", "Cameras"],
-  ["▤", "Traffic"],
-  ["♜", "Ships"],
-  ["✈", "Flights"],
-  ["☁", "Weather"],
-  ["🔔", "Alerts"],
+const sidebarLayerItems: Array<{
+  icon: string;
+  label: string;
+  layer: keyof LayersState;
+}> = [
+  { icon: "◉", label: "Cameras", layer: "cameras" },
+  { icon: "▤", label: "Traffic", layer: "traffic" },
+  { icon: "♜", label: "Ships", layer: "ships" },
+  { icon: "✈", label: "Flights", layer: "flights" },
+  { icon: "☁", label: "Weather", layer: "weather" },
+  { icon: "🔔", label: "Alerts", layer: "alerts" },
+];
+
+const sidebarUtilityItems = [
   ["▣", "Reports"],
   ["▥", "Analytics"],
   ["⚙", "Settings"],
@@ -612,6 +645,7 @@ function CommandMap({
   flightFeedStatus,
   setFlightFeedStatus,
   setShipFeedStatus,
+  searchTarget,
 }: {
   setSelectedCamera: (camera: Camera) => void;
   shipsData: Ship[];
@@ -626,14 +660,19 @@ function CommandMap({
   flightFeedStatus: FlightFeedStatus;
   setFlightFeedStatus: (status: FlightFeedStatus) => void;
   setShipFeedStatus: (status: ShipFeedStatus) => void;
+  searchTarget: MapSearchTarget | null;
 }) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const cameraMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const flightMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const shipMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const searchTargetMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
   const [liveTime, setLiveTime] = useState("");
+  const [playbackDateLabel, setPlaybackDateLabel] = useState("Today");
+  const [selectedTimelineIndex, setSelectedTimelineIndex] = useState(3);
+  const [hoveredActivityPoint, setHoveredActivityPoint] = useState<number | null>(null);
   const shipRouteLayerIds = useMemo(() => [
     "selected-ship-route",
     "selected-ship-expected-route",
@@ -729,12 +768,23 @@ function CommandMap({
     if (!map) return;
 
     const clearShipTrackingLayers = () => {
+      const currentMap = mapRef.current;
+      if (!currentMap || currentMap !== map || !(currentMap as any).style) return;
+
       shipRouteLayerIds.forEach((layerId) => {
-        if (map.getLayer(layerId)) map.removeLayer(layerId);
+        try {
+          if (currentMap.getLayer(layerId)) currentMap.removeLayer(layerId);
+        } catch {
+          // Map style may be unloading. Ignore safe cleanup errors.
+        }
       });
 
       shipRouteSourceIds.forEach((sourceId) => {
-        if (map.getSource(sourceId)) map.removeSource(sourceId);
+        try {
+          if (currentMap.getSource(sourceId)) currentMap.removeSource(sourceId);
+        } catch {
+          // Map style may be unloading. Ignore safe cleanup errors.
+        }
       });
     };
 
@@ -909,9 +959,6 @@ function CommandMap({
   }, [layers.ships, selectedShip, setSelectedShip, shipRouteLayerIds, shipRouteSourceIds, shipsData]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
     const formatNow = () =>
       new Date().toLocaleTimeString([], {
         hour: "2-digit",
@@ -919,120 +966,52 @@ function CommandMap({
         second: "2-digit",
       });
 
-    const loadShipsForVisibleBounds = async () => {
-      const currentMap = mapRef.current;
-      if (!currentMap) return;
-
-      if (!layers.ships) {
-        setLiveShips([]);
-        setShipFeedStatus({
-          source: "AIS layer off",
-          updatedAt: formatNow(),
-          status: "Idle",
-          message: "Turn on the Ships layer to load AIS vessels.",
-        });
-        return;
-      }
-
-      const bounds = currentMap.getBounds();
-      if (!bounds) return;
-
-      const south = bounds.getSouth();
-      const west = bounds.getWest();
-      const north = bounds.getNorth();
-      const east = bounds.getEast();
-
+    if (!layers.ships) {
       setShipFeedStatus({
-        source: "AISstream.io",
-        updatedAt: "Loading",
-        status: "Loading",
-        message: "Collecting live AIS vessels in the current visible map area...",
+        source: "Ship layer off",
+        updatedAt: formatNow(),
+        status: "Idle",
+        message: "Turn on the Ships layer to show saved vessel data.",
       });
+      return;
+    }
 
-      try {
-        const response = await fetch(
-          `/api/ships?lamin=${south}&lomin=${west}&lamax=${north}&lomax=${east}&durationMs=9000`,
-          { cache: "no-store" }
-        );
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          setLiveShips([]);
-          setShipFeedStatus({
-            source: data.source || "AISstream.io",
-            updatedAt: formatNow(),
-            status: "Error",
-            message: data.error || "Could not load live AIS vessels for this map area. Demo ships are active.",
-          });
-          return;
-        }
-
-        const nextShips: Ship[] = data.ships || [];
-
-        if (nextShips.length > 0) {
-          setLiveShips(nextShips);
-        }
-
-        setShipFeedStatus({
-          source: data.source || "AISstream.io",
-          updatedAt: data.updatedAt
-            ? new Date(data.updatedAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })
-            : formatNow(),
-          status: nextShips.length > 0 ? "Live" : "No Vessels",
-          message:
-            nextShips.length > 0
-              ? `${nextShips.length} live AIS vessel(s) loaded in the current map area.`
-              : "No live AIS vessels received in this visible map area. Keeping saved Supabase/demo vessels visible.",
-        });
-
-        if (nextShips.length > 0) {
-          setSelectedShip((current) =>
-            current && nextShips.some((ship) => ship.id === current.id) ? current : nextShips[0]
-          );
-        }
-      } catch {
-        setLiveShips([]);
-        setShipFeedStatus({
-          source: "AISstream.io",
-          updatedAt: formatNow(),
-          status: "Error",
-          message: "AIS request failed. Check app/api/ships/route.ts, ws installation, and AISSTREAM_API_KEY.",
-        });
-      }
-    };
-
-    const scheduleShipLoad = () => {
-      if (shipLoadTimerRef.current) clearTimeout(shipLoadTimerRef.current);
-      shipLoadTimerRef.current = setTimeout(loadShipsForVisibleBounds, 1500);
-    };
-
-    loadShipsForVisibleBounds();
-    const refreshTimer = setInterval(loadShipsForVisibleBounds, 60000);
-    map.on("moveend", scheduleShipLoad);
-
-    return () => {
-      if (shipLoadTimerRef.current) clearTimeout(shipLoadTimerRef.current);
-      clearInterval(refreshTimer);
-      map.off("moveend", scheduleShipLoad);
-    };
-  }, [layers.ships, setLiveShips, setSelectedShip, setShipFeedStatus]);
+    setShipFeedStatus({
+      source:
+        shipsData.length > 0
+          ? "Supabase vessel cache / demo fallback"
+          : "Supabase vessel cache",
+      updatedAt: formatNow(),
+      status: shipsData.length > 0 ? "Demo" : "No Vessels",
+      message:
+        shipsData.length > 0
+          ? `${shipsData.length} saved/demo vessel(s) available. Live AIS provider calls are paused to prevent 502 errors.`
+          : "No saved/demo vessels available. Live AIS provider calls are paused to prevent 502 errors.",
+    });
+  }, [layers.ships, shipsData.length, setShipFeedStatus]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     const clearFlightTrackingLayers = () => {
+      const currentMap = mapRef.current;
+      if (!currentMap || currentMap !== map || !(currentMap as any).style) return;
+
       flightRouteLayerIds.forEach((layerId) => {
-        if (map.getLayer(layerId)) map.removeLayer(layerId);
+        try {
+          if (currentMap.getLayer(layerId)) currentMap.removeLayer(layerId);
+        } catch {
+          // Map style may be unloading. Ignore safe cleanup errors.
+        }
       });
 
       flightRouteSourceIds.forEach((sourceId) => {
-        if (map.getSource(sourceId)) map.removeSource(sourceId);
+        try {
+          if (currentMap.getSource(sourceId)) currentMap.removeSource(sourceId);
+        } catch {
+          // Map style may be unloading. Ignore safe cleanup errors.
+        }
       });
     };
 
@@ -1167,148 +1146,122 @@ function CommandMap({
       flightMarkersRef.current = [];
     };
 
-    const loadFlights = async () => {
-      const currentMap = mapRef.current;
-      if (!currentMap) return;
-
+    const renderSavedFlights = () => {
       clearFlights();
 
       if (!layers.flights) {
         setLiveFlightCount(0);
         setFlightFeedStatus({
           source: "Flight layer off",
-          updatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+          updatedAt: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }),
           status: "Layer Off",
-          message: "Turn on the Flights layer to load aircraft.",
+          message: "Turn on the Flights layer to show saved aircraft.",
         });
         return;
       }
 
+      const flights = savedFlights;
+      setLiveFlightCount(flights.length);
       setFlightFeedStatus({
-        source: "Loading",
-        updatedAt: liveTime || "Loading",
-        status: "Loading",
-        message: "Loading live aircraft in the visible map area...",
+        source: flights.length > 0 ? "Supabase aircraft cache" : "Supabase aircraft cache",
+        updatedAt: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        status: flights.length > 0 ? "Live" : "No Aircraft",
+        message:
+          flights.length > 0
+            ? `Showing ${flights.length} saved aircraft from Supabase. Live flight provider calls are paused to prevent 502 errors.`
+            : "No saved aircraft found in Supabase. Live flight provider calls are paused to prevent 502 errors.",
       });
 
-      try {
-        const bounds = currentMap.getBounds();
-        if (!bounds) return;
+      flights.forEach((flight) => {
+        if (!flight.longitude || !flight.latitude) return;
 
-        const south = bounds.getSouth();
-        const west = bounds.getWest();
-        const north = bounds.getNorth();
-        const east = bounds.getEast();
-
-        const response = await fetch(
-          `/api/flights?lamin=${south}&lomin=${west}&lamax=${north}&lomax=${east}`
+        const isSelected = selectedFlight?.icao24 === flight.icao24;
+        const el = document.createElement("button");
+        el.className = cn(
+          "flex h-8 w-8 items-center justify-center rounded-full border text-xs text-black transition",
+          isSelected
+            ? "border-yellow-200 bg-yellow-300 shadow-[0_0_22px_rgba(250,204,21,0.95)]"
+            : "border-white/40 bg-cyan-400/90 shadow-[0_0_18px_rgba(0,229,255,0.8)]"
         );
+        el.innerHTML = "✈";
+        el.style.transform = `rotate(${flight.heading || 0}deg)`;
+        el.onclick = () => setSelectedFlight(flight);
 
-        const data = await response.json();
+        const marker = new mapboxgl.Marker(el)
+          .setLngLat([flight.longitude, flight.latitude])
+          .setPopup(
+            new mapboxgl.Popup({ offset: 20 }).setHTML(`
+              <div style="font-family:Arial;color:#06111D;font-size:13px;line-height:1.5;min-width:200px;">
+                <strong>${flight.callsign || "Unknown Flight"}</strong><br/>
+                Route: ${flight.origin || "Unknown"} → ${flight.destination || "Unknown"}<br/>
+                Source: ${flight.source || "Supabase aircraft cache"}<br/>
+                Country/Operator: ${flight.originCountry || "Unknown"}<br/>
+                Altitude: ${
+                  flight.altitude ? Math.round(flight.altitude) + " m" : "Unknown"
+                }<br/>
+                Speed: ${
+                  flight.velocity ? Math.round(flight.velocity * 3.6) + " km/h" : "Unknown"
+                }<br/>
+                ETA: ${flight.eta || "Unknown"}
+              </div>
+            `)
+          )
+          .addTo(map);
 
-        if (!response.ok) {
-          setLiveFlightCount(0);
-          setFlightFeedStatus({
-            source: data.source || "Flight API",
-            updatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-            status: "Error",
-            message: data.error || "Flight API request failed.",
-          });
-          return;
-        }
-
-        const liveFlights: Flight[] = (data.flights || []).map((flight: Flight) =>
-          buildFlightIntelligence({
-            ...flight,
-            source: data.source || flight.source || "Live Flight Feed",
-          })
-        );
-
-        const flights = liveFlights.length > 0 ? liveFlights : savedFlights;
-        setLiveFlightCount(flights.length);
-        setFlightFeedStatus({
-          source:
-            liveFlights.length > 0
-              ? data.source || "Live Flight Feed"
-              : savedFlights.length > 0
-              ? "Supabase aircraft cache"
-              : data.source || "Live Flight Feed",
-          updatedAt: data.updatedAt
-            ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-            : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-          status: flights.length > 0 ? "Live" : "No Aircraft",
-          message:
-            liveFlights.length > 0
-              ? `${liveFlights.length} live aircraft loaded from ${data.source || "flight provider"}.`
-              : savedFlights.length > 0
-              ? `No live aircraft found in the visible map area. Showing ${savedFlights.length} saved aircraft from Supabase.`
-              : "No aircraft found in live feed or Supabase cache. Try zooming out or run the flight collector.",
-        });
-
-        flights.forEach((flight) => {
-          if (!flight.longitude || !flight.latitude) return;
-
-          const isSelected = selectedFlight?.icao24 === flight.icao24;
-          const el = document.createElement("button");
-          el.className = cn(
-            "flex h-8 w-8 items-center justify-center rounded-full border text-xs text-black transition",
-            isSelected
-              ? "border-yellow-200 bg-yellow-300 shadow-[0_0_22px_rgba(250,204,21,0.95)]"
-              : "border-white/40 bg-cyan-400/90 shadow-[0_0_18px_rgba(0,229,255,0.8)]"
-          );
-          el.innerHTML = "✈";
-          el.style.transform = `rotate(${flight.heading || 0}deg)`;
-          el.onclick = () => setSelectedFlight(flight);
-
-          const marker = new mapboxgl.Marker(el)
-            .setLngLat([flight.longitude, flight.latitude])
-            .setPopup(
-              new mapboxgl.Popup({ offset: 20 }).setHTML(`
-                <div style="font-family:Arial;color:#06111D;font-size:13px;line-height:1.5;min-width:200px;">
-                  <strong>${flight.callsign || "Unknown Flight"}</strong><br/>
-                  Route: ${flight.origin || "Unknown"} → ${flight.destination || "Unknown"}<br/>
-                  Source: ${flight.source || "Live flight feed"}<br/>
-                  Country/Operator: ${flight.originCountry || "Unknown"}<br/>
-                  Altitude: ${
-                    flight.altitude ? Math.round(flight.altitude) + " m" : "Unknown"
-                  }<br/>
-                  Speed: ${
-                    flight.velocity ? Math.round(flight.velocity * 3.6) + " km/h" : "Unknown"
-                  }<br/>
-                  ETA: ${flight.eta || "Unknown"}<br/>
-                  Source: ${flight.source || data.source || "Live Flight Feed"}
-                </div>
-              `)
-            )
-            .addTo(currentMap);
-
-          flightMarkersRef.current.push(marker);
-        });
-      } catch {
-        setLiveFlightCount(0);
-        setFlightFeedStatus({
-          source: "Flight API",
-          updatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-          status: "Error",
-          message: "Could not load flights. Check the API route and provider limits.",
-        });
-      }
+        flightMarkersRef.current.push(marker);
+      });
     };
 
-    const schedule = () => {
-      if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
-      loadTimerRef.current = setTimeout(loadFlights, 1200);
-    };
-
-    loadFlights();
-    map.on("moveend", schedule);
+    renderSavedFlights();
 
     return () => {
-      if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
-      map.off("moveend", schedule);
       clearFlights();
     };
-  }, [layers.flights, setLiveFlightCount, setFlightFeedStatus, setSelectedFlight, selectedFlight, savedFlights]);
+  }, [layers.flights, savedFlights, selectedFlight, setFlightFeedStatus, setLiveFlightCount, setSelectedFlight]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !searchTarget) return;
+
+    map.flyTo({
+      center: [searchTarget.lng, searchTarget.lat],
+      zoom: searchTarget.zoom || 11,
+      pitch: 48,
+      bearing: -18,
+      duration: 1200,
+      essential: true,
+    });
+
+    if (searchTargetMarkerRef.current) {
+      searchTargetMarkerRef.current.remove();
+      searchTargetMarkerRef.current = null;
+    }
+
+    const el = document.createElement("div");
+    el.className =
+      "flex h-9 w-9 items-center justify-center rounded-full border border-white bg-yellow-300 text-black shadow-[0_0_24px_rgba(250,204,21,0.95)]";
+    el.innerHTML = "⌖";
+
+    searchTargetMarkerRef.current = new mapboxgl.Marker(el)
+      .setLngLat([searchTarget.lng, searchTarget.lat])
+      .setPopup(
+        new mapboxgl.Popup({ offset: 18 }).setHTML(`
+          <div style="font-family:Arial;color:#06111D;font-size:13px;line-height:1.5;min-width:180px;">
+            <strong>${searchTarget.label}</strong><br/>
+            Search target
+          </div>
+        `)
+      )
+      .addTo(map);
+  }, [searchTarget]);
 
   useEffect(() => {
     const updateClock = () => {
@@ -1323,10 +1276,104 @@ function CommandMap({
 
     updateClock();
 
+    setPlaybackDateLabel(
+      new Date().toLocaleDateString([], {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    );
+
     const timer = setInterval(updateClock, 1000);
 
     return () => clearInterval(timer);
   }, []);
+
+  const activityPoints = [
+    {
+      time: "00:00",
+      date: playbackDateLabel,
+      progress: 0,
+      top: 62,
+      traffic: 34,
+      maritime: 41,
+      aviation: 28,
+      label: "Quiet overnight movement",
+    },
+    {
+      time: "04:00",
+      date: playbackDateLabel,
+      progress: 17,
+      top: 52,
+      traffic: 46,
+      maritime: 58,
+      aviation: 31,
+      label: "Early logistics movement",
+    },
+    {
+      time: "08:00",
+      date: playbackDateLabel,
+      progress: 34,
+      top: 34,
+      traffic: 78,
+      maritime: 63,
+      aviation: 52,
+      label: "Morning rush increase",
+    },
+    {
+      time: liveTime || "12:00",
+      date: playbackDateLabel,
+      progress: 52,
+      top: 26,
+      traffic: 86,
+      maritime: 72,
+      aviation: 67,
+      label: "Current live activity peak",
+    },
+    {
+      time: "16:00",
+      date: playbackDateLabel,
+      progress: 67,
+      top: 44,
+      traffic: 69,
+      maritime: 61,
+      aviation: 58,
+      label: "Afternoon traffic easing",
+    },
+    {
+      time: "20:00",
+      date: playbackDateLabel,
+      progress: 84,
+      top: 36,
+      traffic: 74,
+      maritime: 48,
+      aviation: 71,
+      label: "Evening aviation and road activity",
+    },
+    {
+      time: "24:00",
+      date: "Next day",
+      progress: 100,
+      top: 28,
+      traffic: 52,
+      maritime: 39,
+      aviation: 81,
+      label: "Late-night airport movement",
+    },
+  ];
+
+  const selectedActivityPoint =
+    activityPoints[selectedTimelineIndex] || activityPoints[3];
+  const hoveredPoint =
+    hoveredActivityPoint !== null ? activityPoints[hoveredActivityPoint] : null;
+  const playbackProgress = selectedActivityPoint.progress;
+  const selectedBusyScore = Math.round(
+    (selectedActivityPoint.traffic +
+      selectedActivityPoint.maritime +
+      selectedActivityPoint.aviation) /
+      3
+  );
 
   return (
     <div className="relative h-full w-full">
@@ -1347,34 +1394,194 @@ function CommandMap({
         </>
       )}
 
-      <div className="absolute bottom-4 left-4 right-4 rounded-lg border border-cyan-400/20 bg-[#050B14]/88 p-3 backdrop-blur">
-        <div className="flex items-center gap-4">
-          <button className="flex h-9 w-9 items-center justify-center rounded-md bg-cyan-400 text-black">
-            ▶
-          </button>
-          <button className="rounded-md border border-cyan-400/20 bg-[#0B1728] px-3 py-2 text-xs text-slate-300">
-            1x
-          </button>
-          <div className="relative h-1 flex-1 rounded-full bg-slate-700">
-            <div className="absolute left-0 top-0 h-1 w-[52%] rounded-full bg-cyan-400" />
-            <div className="absolute left-[52%] top-1/2 -translate-y-1/2 rounded bg-cyan-400 px-2 py-1 text-[10px] text-black">
-              {liveTime}
-            </div>
+      <div className="absolute bottom-3 left-3 right-3 overflow-hidden rounded-xl border border-cyan-400/20 bg-[#05070D]/92 shadow-[0_0_28px_rgba(0,200,255,0.12)] backdrop-blur">
+        <div className="flex items-center justify-between border-b border-cyan-500/15 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <button className="rounded-md border border-cyan-400/30 bg-cyan-400/10 px-5 py-2 text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300 hover:bg-cyan-400/20">
+              Play
+            </button>
+            {["30m/s", "2h/s", "6h/s", "1d/s"].map((speed) => (
+              <button
+                key={speed}
+                className={cn(
+                  "rounded-md border px-4 py-2 text-[10px] font-bold uppercase tracking-widest transition",
+                  speed === "6h/s"
+                    ? "border-cyan-300 bg-cyan-400/15 text-cyan-200 shadow-[0_0_18px_rgba(34,211,238,0.2)]"
+                    : "border-slate-700 bg-[#10131C] text-slate-400 hover:border-cyan-400/40 hover:text-cyan-300"
+                )}
+              >
+                {speed}
+              </button>
+            ))}
           </div>
-          <button className="rounded-md border border-cyan-400/20 bg-[#0B1728] px-4 py-2 text-xs text-cyan-300">
-            LIVE
-          </button>
-          <button className="rounded-md border border-cyan-400/20 bg-[#0B1728] px-3 py-2 text-xs">
-            ⛶
-          </button>
+
+          <div className="text-center">
+            <p className="text-[12px] font-bold tracking-[0.25em] text-slate-200">
+              {selectedActivityPoint.date} {selectedActivityPoint.time} UTC
+            </p>
+            <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-slate-500">
+              {shipsData.length.toLocaleString()} active vessels · {savedFlights.length.toLocaleString()} cached aircraft chunks · Busy score {selectedBusyScore}%
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button className="rounded-md border border-cyan-400/20 bg-[#0B1728] px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-cyan-300">
+              Live
+            </button>
+            <button className="rounded-md border border-cyan-400/20 bg-[#0B1728] px-3 py-2 text-xs text-slate-300">
+              ⛶
+            </button>
+          </div>
         </div>
 
-        <div className="mt-2 flex justify-between px-[115px] text-[10px] text-slate-400">
-          <span>00:00</span>
-          <span>06:00</span>
-          <span>12:00</span>
-          <span>18:00</span>
-          <span>24:00</span>
+        <div className="relative h-[154px] bg-[#090C14]/95">
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(6,182,212,0.10),rgba(34,197,94,0.08),rgba(250,204,21,0.10),rgba(249,115,22,0.10),rgba(239,68,68,0.12))]" />
+
+          <div className="absolute inset-x-0 top-0 h-[18px] grid grid-cols-5 text-center text-[8px] font-bold uppercase tracking-widest">
+            <div className="border-r border-white/10 bg-cyan-400/10 text-cyan-200">Quiet</div>
+            <div className="border-r border-white/10 bg-green-400/10 text-green-200">Normal</div>
+            <div className="border-r border-white/10 bg-yellow-400/10 text-yellow-200">Busy</div>
+            <div className="border-r border-white/10 bg-orange-400/10 text-orange-200">Heavy</div>
+            <div className="bg-red-400/10 text-red-200">Critical</div>
+          </div>
+
+          <div className="absolute inset-x-0 top-[18px] bottom-0 grid grid-cols-7">
+            {activityPoints.map((point, index) => (
+              <button
+                key={`${point.time}-grid`}
+                onClick={() => setSelectedTimelineIndex(index)}
+                onMouseEnter={() => setHoveredActivityPoint(index)}
+                onMouseLeave={() => setHoveredActivityPoint(null)}
+                className={cn(
+                  "border-l border-white/10 transition first:border-l-0 hover:bg-cyan-400/5",
+                  selectedTimelineIndex === index && "bg-cyan-400/10"
+                )}
+                title={`${point.date} ${point.time} — ${point.label}`}
+              />
+            ))}
+          </div>
+
+          <div className="absolute inset-x-0 top-[22px] h-[66px] border-b border-cyan-500/15">
+            <svg viewBox="0 0 1000 90" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
+              <path
+                d="M0 58 C80 46, 135 50, 190 54 C250 62, 310 70, 370 52 C430 34, 490 36, 560 44 C620 52, 680 40, 742 43 C810 46, 870 48, 930 44 C965 40, 990 42, 1000 38"
+                stroke="#18d5ff"
+                strokeWidth="4"
+                fill="none"
+                strokeLinecap="round"
+                opacity="0.95"
+              />
+              <path
+                d="M0 70 C90 68, 150 66, 215 70 C285 76, 330 56, 400 58 C470 60, 530 62, 610 60 C690 57, 760 61, 835 58 C905 55, 955 60, 1000 56"
+                stroke="#ffb044"
+                strokeWidth="4"
+                fill="none"
+                strokeLinecap="round"
+                opacity="0.9"
+              />
+              <path
+                d="M0 58 L0 90 L1000 90 L1000 38 C990 42, 965 40, 930 44 C870 48, 810 46, 742 43 C680 40, 620 52, 560 44 C490 36, 430 34, 370 52 C310 70, 250 62, 190 54 C135 50, 80 46, 0 58 Z"
+                fill="url(#busyGradient)"
+                opacity="0.26"
+              />
+              <defs>
+                <linearGradient id="busyGradient" x1="0" x2="1">
+                  <stop offset="0%" stopColor="#18d5ff" />
+                  <stop offset="25%" stopColor="#22c55e" />
+                  <stop offset="52%" stopColor="#f59e0b" />
+                  <stop offset="74%" stopColor="#f97316" />
+                  <stop offset="100%" stopColor="#ef4444" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+
+          <div
+            className="absolute top-[18px] z-20 h-[112px] w-px bg-cyan-200 shadow-[0_0_24px_rgba(34,211,238,0.95)]"
+            style={{ left: `${playbackProgress}%` }}
+          >
+            <div className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-md border border-cyan-200 bg-cyan-300 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-black shadow-[0_0_20px_rgba(34,211,238,0.95)]">
+              Here
+            </div>
+            <div className="absolute bottom-[-8px] left-1/2 h-5 w-5 -translate-x-1/2 rounded-full border-2 border-white bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.95)]" />
+          </div>
+
+          <div className="absolute inset-x-0 top-[92px] h-[34px]">
+            {activityPoints.map((point, index) => {
+              const intensity = Math.round((point.traffic + point.maritime + point.aviation) / 3);
+              const isSelected = selectedTimelineIndex === index;
+
+              return (
+                <button
+                  key={`${point.time}-event`}
+                  onClick={() => setSelectedTimelineIndex(index)}
+                  onMouseEnter={() => setHoveredActivityPoint(index)}
+                  onMouseLeave={() => setHoveredActivityPoint(null)}
+                  className={cn(
+                    "absolute flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full border text-[9px] font-black text-black transition hover:scale-110",
+                    isSelected
+                      ? "scale-125 border-white bg-cyan-300 shadow-[0_0_24px_rgba(34,211,238,0.9)]"
+                      : intensity >= 80
+                      ? "border-red-100 bg-red-400 shadow-[0_0_18px_rgba(248,113,113,0.55)]"
+                      : intensity >= 65
+                      ? "border-orange-100 bg-orange-300 shadow-[0_0_18px_rgba(251,146,60,0.5)]"
+                      : intensity >= 50
+                      ? "border-yellow-100 bg-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.45)]"
+                      : "border-cyan-100 bg-cyan-300 shadow-[0_0_18px_rgba(34,211,238,0.45)]"
+                  )}
+                  style={{ left: `${point.progress}%`, top: `${index % 2 === 0 ? 2 : 18}px` }}
+                  title={`${point.date} ${point.time} — ${point.label}`}
+                >
+                  {Math.max(1, Math.round(intensity / 20))}
+                </button>
+              );
+            })}
+          </div>
+
+          {hoveredPoint && (
+            <div
+              className="absolute z-30 w-56 -translate-x-1/2 rounded-lg border border-cyan-500/30 bg-[#050B14]/95 p-3 text-left shadow-[0_0_24px_rgba(0,200,255,0.18)]"
+              style={{
+                left: `${Math.min(Math.max(hoveredPoint.progress, 12), 88)}%`,
+                top: "26px",
+              }}
+            >
+              <p className="text-[10px] font-bold uppercase tracking-widest text-cyan-300">
+                {hoveredPoint.date} • {hoveredPoint.time}
+              </p>
+              <p className="mt-1 text-[10px] text-white">{hoveredPoint.label}</p>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-[9px]">
+                <div>
+                  <p className="text-slate-500">Traffic</p>
+                  <p className="font-bold text-cyan-300">{hoveredPoint.traffic}%</p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Ships</p>
+                  <p className="font-bold text-yellow-300">{hoveredPoint.maritime}%</p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Flights</p>
+                  <p className="font-bold text-fuchsia-300">{hoveredPoint.aviation}%</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="absolute bottom-1 left-0 right-0 grid grid-cols-7 text-[9px]">
+            {activityPoints.map((point, index) => (
+              <button
+                key={`${point.time}-label`}
+                onClick={() => setSelectedTimelineIndex(index)}
+                className={cn(
+                  "rounded-md px-2 py-1 text-left transition hover:bg-cyan-400/10 hover:text-cyan-300",
+                  selectedTimelineIndex === index ? "bg-cyan-400/10 text-cyan-200" : "text-slate-500"
+                )}
+              >
+                <p className="font-bold">{point.time}</p>
+                <p className="truncate">{point.date}</p>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -3018,6 +3225,13 @@ function FeatureStrip() {
 
 export default function Home() {
   const [selectedCamera, setSelectedCamera] = useState<Camera>(cameras[0]);
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [searchStatus, setSearchStatus] = useState("");
+  const [aiCommand, setAiCommand] = useState("");
+  const [aiStatus, setAiStatus] = useState("");
+  const [aiAnswer, setAiAnswer] = useState("");
+  const [isAskingAtlas, setIsAskingAtlas] = useState(false);
+  const [mapSearchTarget, setMapSearchTarget] = useState<MapSearchTarget | null>(null);
   const [liveFlightCount, setLiveFlightCount] = useState(0);
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [flightFeedStatus, setFlightFeedStatus] = useState<FlightFeedStatus>({
@@ -3067,6 +3281,394 @@ export default function Home() {
       ...prev,
       [layer]: !prev[layer],
     }));
+  };
+
+  const cleanLocationQuery = (value: string) => {
+    return value
+      .replace(/\b[A-Z0-9]{4,8}\+[A-Z0-9]{2,4}\b/gi, "")
+      .replace(/\s+/g, " ")
+      .replace(/^,|,$/g, "")
+      .trim();
+  };
+
+  const isLikelyMauritiusQuery = (value: string) => {
+    const lowerValue = value.toLowerCase();
+
+    return (
+      /\b[A-Z0-9]{4,8}\+[A-Z0-9]{2,4}\b/i.test(value) ||
+      [
+        "mauritius",
+        "vacoas",
+        "phoenix",
+        "port louis",
+        "curepipe",
+        "quatre bornes",
+        "rose hill",
+        "beau bassin",
+        "la caverne",
+        "plaines wilhems",
+        "flacq",
+        "grand baie",
+        "triolet",
+        "mahebourg",
+        "moka",
+        "tamarin",
+        "flic en flac",
+        "reduit",
+        "ebene",
+      ].some((term) => lowerValue.includes(term))
+    );
+  };
+
+  const buildMapboxSearchUrl = (
+    value: string,
+    token: string,
+    mauritiusBias: boolean
+  ) => {
+    const params = new URLSearchParams({
+      access_token: token,
+      limit: "5",
+      autocomplete: "true",
+      types: "poi,address,place,locality,neighborhood",
+      language: "en",
+    });
+
+    if (mauritiusBias) {
+      params.set("country", "mu");
+      params.set("proximity", "57.5012,-20.2437");
+    }
+
+    return `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+      value
+    )}.json?${params.toString()}`;
+  };
+
+  const scoreMapboxFeature = (feature: any, originalQuery: string) => {
+    const featureText = `${feature.place_name || ""} ${feature.text || ""}`.toLowerCase();
+    const queryWords = cleanLocationQuery(originalQuery)
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((word) => word.length > 2);
+
+    const matchedWords = queryWords.filter((word) => featureText.includes(word)).length;
+    const type = feature.place_type?.[0] || "";
+
+    const typeScore =
+      type === "poi" ? 30 : type === "address" ? 24 : type === "locality" ? 10 : type === "place" ? 8 : 0;
+
+    return (feature.relevance || 0) * 100 + matchedWords * 8 + typeScore;
+  };
+
+  const chooseBestMapboxFeature = (features: any[], originalQuery: string) => {
+    return [...features].sort(
+      (a, b) => scoreMapboxFeature(b, originalQuery) - scoreMapboxFeature(a, originalQuery)
+    )[0];
+  };
+
+  const runAtlasSearch = async (
+    rawQuery: string,
+    options?: {
+      source?: "search" | "ai";
+      status?: (message: string) => void;
+    }
+  ) => {
+    const query = rawQuery.trim();
+
+    if (!query) {
+      options?.status?.("Type a camera, vessel, flight, or location.");
+      return null;
+    }
+
+    const lowerQuery = query.toLowerCase();
+
+    const matchedCustomPlace = customPlaces.find((place) =>
+      place.aliases.some((alias) => lowerQuery.includes(alias.toLowerCase()))
+    );
+
+    if (matchedCustomPlace) {
+      setMapSearchTarget({
+        lng: matchedCustomPlace.lng,
+        lat: matchedCustomPlace.lat,
+        zoom: matchedCustomPlace.zoom,
+        label: matchedCustomPlace.name,
+      });
+      options?.status?.(`Exact saved place found: ${matchedCustomPlace.name}`);
+
+      return {
+        type: "custom-place",
+        label: matchedCustomPlace.name,
+        message: `Moved map to exact saved place: ${matchedCustomPlace.name}, ${matchedCustomPlace.address}.`,
+      };
+    }
+
+    const matchedCamera = cameras.find((camera) =>
+      `${camera.name} ${camera.location}`.toLowerCase().includes(lowerQuery)
+    );
+
+    if (matchedCamera) {
+      setSelectedCamera(matchedCamera);
+      setMapSearchTarget({
+        lng: matchedCamera.lng,
+        lat: matchedCamera.lat,
+        zoom: 14,
+        label: matchedCamera.name,
+      });
+      setLayers((prev) => ({ ...prev, cameras: true }));
+      options?.status?.(`Camera found: ${matchedCamera.name}`);
+
+      return {
+        type: "camera",
+        label: matchedCamera.name,
+        message: `Moved map to camera: ${matchedCamera.name}.`,
+      };
+    }
+
+    const matchedShip = shipsForDisplay.find((ship) =>
+      `${ship.name} ${ship.location} ${ship.destination} ${ship.mmsi || ""} ${ship.imo || ""}`.toLowerCase().includes(lowerQuery)
+    );
+
+    if (matchedShip) {
+      setSelectedShip(matchedShip);
+      setMapSearchTarget({
+        lng: matchedShip.lng,
+        lat: matchedShip.lat,
+        zoom: 10.5,
+        label: matchedShip.name,
+      });
+      setLayers((prev) => ({ ...prev, ships: true }));
+      options?.status?.(`Vessel found: ${matchedShip.name}`);
+
+      return {
+        type: "ship",
+        label: matchedShip.name,
+        message: `Moved map to vessel: ${matchedShip.name}.`,
+      };
+    }
+
+    const matchedFlight = savedFlights.find((flight) =>
+      `${flight.callsign || ""} ${flight.icao24} ${flight.originCountry || ""} ${flight.origin || ""} ${flight.destination || ""}`.toLowerCase().includes(lowerQuery)
+    );
+
+    if (
+      matchedFlight &&
+      Number.isFinite(matchedFlight.longitude) &&
+      Number.isFinite(matchedFlight.latitude)
+    ) {
+      setSelectedFlight(matchedFlight);
+      setMapSearchTarget({
+        lng: matchedFlight.longitude!,
+        lat: matchedFlight.latitude!,
+        zoom: 8.8,
+        label: matchedFlight.callsign || matchedFlight.icao24,
+      });
+      setLayers((prev) => ({ ...prev, flights: true }));
+      options?.status?.(`Aircraft found: ${matchedFlight.callsign || matchedFlight.icao24}`);
+
+      return {
+        type: "flight",
+        label: matchedFlight.callsign || matchedFlight.icao24,
+        message: `Moved map to aircraft: ${matchedFlight.callsign || matchedFlight.icao24}.`,
+      };
+    }
+
+    try {
+      options?.status?.("Searching location...");
+      const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+
+      if (!token) {
+        options?.status?.("Mapbox token missing. Cannot search locations.");
+        return null;
+      }
+
+      const cleanedQuery = cleanLocationQuery(query) || query;
+      const mauritiusBias = isLikelyMauritiusQuery(query);
+      const queryAttempts = Array.from(
+        new Set([
+          cleanedQuery,
+          query,
+          cleanedQuery.split(",")[0]?.trim(),
+        ].filter(Boolean))
+      );
+
+      const allFeatures: any[] = [];
+
+      for (const attempt of queryAttempts) {
+        const searchBiases = mauritiusBias ? [true, false] : [false];
+
+        for (const useMauritiusBias of searchBiases) {
+          const response = await fetch(buildMapboxSearchUrl(attempt, token, useMauritiusBias));
+          const data = await response.json();
+          allFeatures.push(...(data.features || []));
+        }
+      }
+
+      const feature = chooseBestMapboxFeature(allFeatures, query);
+
+      if (!feature?.center) {
+        options?.status?.(
+          "No exact place found. Try the place name + town, or save it as a custom Atlas place."
+        );
+        return null;
+      }
+
+      const [lng, lat] = feature.center;
+      const placeType = feature.place_type?.[0] || "location";
+      const zoom = placeType === "poi" || placeType === "address" ? 16.5 : 12;
+
+      setMapSearchTarget({
+        lng,
+        lat,
+        zoom,
+        label: feature.place_name || cleanedQuery,
+      });
+
+      options?.status?.(
+        placeType === "poi" || placeType === "address"
+          ? `Precise ${placeType} found: ${feature.place_name || cleanedQuery}`
+          : `Approximate area found: ${feature.place_name || cleanedQuery}`
+      );
+
+      return {
+        type: placeType,
+        label: feature.place_name || cleanedQuery,
+        message:
+          placeType === "poi" || placeType === "address"
+            ? `Moved map to ${feature.place_name || cleanedQuery}.`
+            : `Moved map to the closest mapped area: ${feature.place_name || cleanedQuery}. This may not be the exact building.`,
+      };
+    } catch {
+      options?.status?.("Search failed. Check connection or Mapbox token.");
+      return null;
+    }
+  };
+
+  const extractAtlasCommandLocation = (question: string) => {
+    const cleaned = question.trim();
+
+    const commandPatterns = [
+      /^monitor\s+(.+)$/i,
+      /^show\s+(.+)$/i,
+      /^go\s+to\s+(.+)$/i,
+      /^zoom\s+to\s+(.+)$/i,
+      /^move\s+to\s+(.+)$/i,
+      /^focus\s+on\s+(.+)$/i,
+      /^watch\s+(.+)$/i,
+    ];
+
+    for (const pattern of commandPatterns) {
+      const match = cleaned.match(pattern);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+    }
+
+    return null;
+  };
+
+  const handleGlobalSearch = async () => {
+    await runAtlasSearch(globalSearch, { source: "search", status: setSearchStatus });
+  };
+
+  const handleAskAtlas = async () => {
+    const question = aiCommand.trim();
+
+    if (!question) {
+      setAiStatus("Ask Atlas something first.");
+      setAiAnswer("");
+      return;
+    }
+
+    if (isAskingAtlas) return;
+
+    setIsAskingAtlas(true);
+    setAiStatus("Atlas AI is thinking...");
+    setAiAnswer("");
+
+    const commandLocation = extractAtlasCommandLocation(question);
+    let commandResult: Awaited<ReturnType<typeof runAtlasSearch>> = null;
+
+    if (commandLocation) {
+      setAiStatus(`Atlas is moving to ${commandLocation}...`);
+      commandResult = await runAtlasSearch(commandLocation, {
+        source: "ai",
+        status: setSearchStatus,
+      });
+
+      if (commandResult) {
+        setAiStatus("Atlas command executed");
+        setAiAnswer(
+          `${commandResult.message}\n\nMonitoring note: live ships/flights providers are currently paused, so Atlas will use saved Supabase/demo data until provider switching is active.`
+        );
+      } else {
+        setAiStatus("Atlas command needs attention");
+        setAiAnswer(
+          `I could not move to "${commandLocation}". Check the spelling or try the normal search box.`
+        );
+      }
+
+      setIsAskingAtlas(false);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/ask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+        body: JSON.stringify({
+          question,
+          context: {
+            selectedCamera,
+            selectedShip,
+            selectedFlight,
+            shipFeedStatus,
+            flightFeedStatus,
+            visibleShips: shipsForDisplay.slice(0, 12),
+            savedFlights: savedFlights.slice(0, 12),
+            activeAlerts: runtimeActiveAlerts.slice(0, 10),
+            layers,
+            counts: {
+              ships: shipsForDisplay.length,
+              flights: savedFlights.length,
+              alerts: activeAlertsCount,
+            },
+          },
+        }),
+      });
+
+      const rawText = await response.text();
+      let data: any = {};
+
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = { error: rawText || "Atlas AI returned a non-JSON response." };
+      }
+
+      if (!response.ok) {
+        setAiStatus(data.error || `Atlas AI request failed with status ${response.status}.`);
+        setAiAnswer(
+          data.hint ||
+            data.details?.message ||
+            "Check GEMINI_API_KEY in .env.local, confirm /api/ask shows configured true, then restart npm run dev."
+        );
+        return;
+      }
+
+      setAiStatus(data.source || "Atlas AI response");
+      setAiAnswer(data.answer || "No answer returned.");
+    } catch (error) {
+      setAiStatus("Atlas AI connection failed.");
+      setAiAnswer(
+        error instanceof Error
+          ? error.message
+          : "Check that app/api/ask/route.ts exists and that your dev server was restarted."
+      );
+    } finally {
+      setIsAskingAtlas(false);
+    }
   };
 
   // Load saved Supabase data first so Atlas opens quickly, even before live providers respond.
@@ -3216,24 +3818,63 @@ export default function Home() {
             </div>
 
             <nav className="space-y-1 p-2">
-              {sidebarItems.map(([icon, item], index) => (
+              <button className="group relative flex w-full items-center gap-2 rounded-md border border-cyan-500/20 bg-cyan-400/10 px-2 py-3 text-left text-[12px] text-cyan-300">
+                <span className="w-5 text-center text-base">▣</span>
+                <span>Dashboard</span>
+              </button>
+
+              <div className="my-2 border-t border-cyan-500/10" />
+
+              {sidebarLayerItems.map((item) => (
+                <button
+                  key={item.layer}
+                  onClick={() => toggleLayer(item.layer)}
+                  className={cn(
+                    "group relative flex w-full items-center gap-1.5 rounded-md px-1.5 py-3 text-left text-[12px] transition",
+                    layers[item.layer]
+                      ? "text-slate-200 hover:bg-cyan-400/5 hover:text-cyan-300"
+                      : "text-slate-600 hover:bg-cyan-400/5 hover:text-slate-400"
+                  )}
+                  title={`${layers[item.layer] ? "Hide" : "Show"} ${item.label}`}
+                >
+                  <span className="w-5 shrink-0 text-center text-base">{item.icon}</span>
+                  <span className="min-w-0 flex-1">{item.label}</span>
+
+                  {item.layer === "alerts" ? (
+                    <span className="w-5 shrink-0 rounded-full bg-red-500 px-1.5 text-center text-[9px] text-white">
+                      {activeAlertsCount}
+                    </span>
+                  ) : (
+                    <span className="w-5 shrink-0" />
+                  )}
+
+                  <span
+                    className={cn(
+                      "relative h-4 w-8 shrink-0 rounded-full border transition",
+                      layers[item.layer]
+                        ? "border-green-400/40 bg-green-500/80 shadow-[0_0_12px_rgba(34,197,94,0.35)]"
+                        : "border-slate-700 bg-slate-800"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-0.5 h-3 w-3 rounded-full bg-white transition",
+                        layers[item.layer] ? "left-4" : "left-0.5"
+                      )}
+                    />
+                  </span>
+                </button>
+              ))}
+
+              <div className="my-2 border-t border-cyan-500/10" />
+
+              {sidebarUtilityItems.map(([icon, item]) => (
                 <button
                   key={item}
-                  className={cn(
-                    "group relative flex w-full items-center gap-2 rounded-md px-2 py-3 text-left text-[12px]",
-                    index === 0
-                      ? "border border-cyan-500/20 bg-cyan-400/10 text-cyan-300"
-                      : "text-slate-300 hover:bg-cyan-400/5 hover:text-cyan-300"
-                  )}
+                  className="group relative flex w-full items-center gap-2 rounded-md px-2 py-3 text-left text-[12px] text-slate-300 hover:bg-cyan-400/5 hover:text-cyan-300"
                 >
                   <span className="w-5 text-center text-base">{icon}</span>
                   <span>{item}</span>
-
-                  {item === "Alerts" && (
-                    <span className="ml-auto rounded-full bg-red-500 px-1.5 text-[9px] text-white">
-                      {activeAlertsCount}
-                    </span>
-                  )}
                 </button>
               ))}
             </nav>
@@ -3243,41 +3884,86 @@ export default function Home() {
             </button>
           </aside>
 
-          <header className="fixed left-[132px] right-0 top-0 z-40 h-16 min-w-[1188px] border-b border-cyan-500/20 bg-[#040B14]/95 px-4 backdrop-blur">
-            <div className="flex h-full items-center gap-4">
-              <div className="relative w-[280px]">
+          <header className="fixed left-[132px] right-0 top-0 z-40 h-16 border-b border-cyan-500/20 bg-[#040B14]/95 px-4 backdrop-blur">
+            <div className="flex h-full w-full items-center gap-5 overflow-visible">
+              <div className="relative w-[280px] shrink-0">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">⌕</span>
                 <input
-                  className="w-full rounded-md border border-cyan-500/20 bg-[#07111F] py-3 pl-9 pr-3 text-xs outline-none placeholder:text-slate-500 focus:border-cyan-400"
-                  placeholder="Search location, camera, vessel, flight..."
+                  value={globalSearch}
+                  onChange={(event) => setGlobalSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleGlobalSearch();
+                  }}
+                  className="h-12 w-full rounded-md border border-cyan-500/20 bg-[#07111F] pl-9 pr-16 text-xs outline-none placeholder:text-slate-500 focus:border-cyan-400"
+                  placeholder="Search camera, vessel, flight..."
                 />
+                <button
+                  onClick={handleGlobalSearch}
+                  className="absolute right-1.5 top-1/2 h-9 -translate-y-1/2 rounded-md border border-cyan-500/30 bg-cyan-400/10 px-3 text-[10px] font-bold uppercase tracking-wider text-cyan-300 hover:bg-cyan-400/20"
+                >
+                  Go
+                </button>
+
+                {searchStatus && (
+                  <div className="absolute left-0 top-[calc(100%+8px)] z-[999] w-full rounded-md border border-cyan-500/20 bg-[#07111F] px-3 py-2 text-[10px] text-slate-300 shadow-[0_0_18px_rgba(0,200,255,0.12)]">
+                    {searchStatus}
+                  </div>
+                )}
               </div>
 
-              <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-cyan-300">✎</span>
-                <input
-                  className="w-full rounded-md border border-cyan-400/50 bg-[#07111F] py-3 pl-10 pr-10 text-xs outline-none placeholder:text-slate-500 shadow-[0_0_18px_rgba(0,200,255,0.18)] focus:border-cyan-300"
-                  placeholder="Ask anything... e.g. Show me traffic cameras in Port Louis"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-cyan-300">▮▮</span>
+              <div className="relative min-w-0 flex-1">
+                <div className="flex h-12 w-full items-center gap-2 rounded-md border border-cyan-400/50 bg-[#07111F] px-3 shadow-[0_0_18px_rgba(0,200,255,0.18)] focus-within:border-cyan-300">
+                  <span className="shrink-0 text-cyan-300">✎</span>
+                  <input
+                    value={aiCommand}
+                    onChange={(event) => setAiCommand(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") handleAskAtlas();
+                    }}
+                    className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-slate-500"
+                    placeholder="Ask Atlas AI... e.g. What should I monitor now?"
+                  />
+                  <button
+                    onClick={handleAskAtlas}
+                    disabled={isAskingAtlas}
+                    className={cn(
+                      "h-8 shrink-0 rounded-md border border-cyan-500/30 px-4 text-[10px] font-bold uppercase tracking-wider text-cyan-300 transition",
+                      isAskingAtlas
+                        ? "cursor-wait bg-cyan-400/5 opacity-60"
+                        : "bg-cyan-400/10 hover:bg-cyan-400/20"
+                    )}
+                  >
+                    {isAskingAtlas ? "..." : "Ask"}
+                  </button>
+                </div>
+
+                {(aiStatus || aiAnswer) && (
+                  <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-[999] rounded-md border border-cyan-500/25 bg-[#07111F] p-3 text-xs shadow-[0_0_26px_rgba(0,200,255,0.22)]">
+                    {aiStatus && (
+                      <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-cyan-300">
+                        {aiStatus}
+                      </p>
+                    )}
+                    {aiAnswer && (
+                      <p className="max-h-44 overflow-y-auto whitespace-pre-wrap text-[11px] leading-5 text-slate-200">
+                        {aiAnswer}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div className="flex items-center gap-4">
-                <div className="relative text-lg">
-                  🔔
-                  <span className="absolute -right-2 -top-2 rounded-full bg-red-500 px-1 text-[9px]">
-                    {activeAlertsCount}
-                  </span>
+              <div className="flex shrink-0 items-center justify-end">
+                <div className="flex w-[200px] shrink-0 items-center gap-2 rounded-md border border-cyan-500/15 bg-[#07111F] px-3 py-1.5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-600 bg-slate-800">
+                    👤
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-bold text-white">Admin</p>
+                    <p className="truncate text-[10px] text-slate-400">Super Admin</p>
+                  </div>
+                  <span className="shrink-0 text-slate-400">⌄</span>
                 </div>
-                <div className="text-lg">▣</div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-600 bg-slate-800">
-                  👤
-                </div>
-                <div className="pr-2">
-                  <p className="text-xs font-bold text-white">Admin</p>
-                  <p className="text-[10px] text-slate-400">Super Admin</p>
-                </div>
-                <span className="text-slate-400">⌄</span>
               </div>
             </div>
           </header>
@@ -3289,9 +3975,7 @@ export default function Home() {
                   <Card className="h-[690px]">
                 <SectionLabel number="1" title="Main Dashboard" />
 
-                <LayersPanel layers={layers} toggleLayer={toggleLayer} />
-
-                <CommandMap
+<CommandMap
                   setSelectedCamera={setSelectedCamera}
                   shipsData={shipsForDisplay}
                   selectedShip={selectedShip}
@@ -3305,6 +3989,7 @@ export default function Home() {
                   flightFeedStatus={flightFeedStatus}
                   setFlightFeedStatus={setFlightFeedStatus}
                   setShipFeedStatus={setShipFeedStatus}
+                  searchTarget={mapSearchTarget}
                 />
 
                   </Card>
