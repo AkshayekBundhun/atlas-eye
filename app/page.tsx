@@ -134,7 +134,18 @@ type MapSearchTarget = {
   label: string;
 };
 
-const customPlaces = [
+type CustomPlace = {
+  id?: string;
+  name: string;
+  aliases: string[];
+  address: string;
+  category?: string;
+  lng: number;
+  lat: number;
+  zoom?: number;
+};
+
+const fallbackCustomPlaces: CustomPlace[] = [
   {
     name: "Al Kahf Centre",
     aliases: [
@@ -646,6 +657,7 @@ function CommandMap({
   setFlightFeedStatus,
   setShipFeedStatus,
   searchTarget,
+  setMapSearchTarget,
 }: {
   setSelectedCamera: (camera: Camera) => void;
   shipsData: Ship[];
@@ -661,6 +673,7 @@ function CommandMap({
   setFlightFeedStatus: (status: FlightFeedStatus) => void;
   setShipFeedStatus: (status: ShipFeedStatus) => void;
   searchTarget: MapSearchTarget | null;
+  setMapSearchTarget: Dispatch<SetStateAction<MapSearchTarget | null>>;
 }) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -1246,22 +1259,61 @@ function CommandMap({
     }
 
     const el = document.createElement("div");
-    el.className =
-      "flex h-9 w-9 items-center justify-center rounded-full border border-white bg-yellow-300 text-black shadow-[0_0_24px_rgba(250,204,21,0.95)]";
     el.innerHTML = "⌖";
+    el.title = "Drag this pin to the exact place";
+    el.style.width = "42px";
+    el.style.height = "42px";
+    el.style.borderRadius = "9999px";
+    el.style.display = "flex";
+    el.style.alignItems = "center";
+    el.style.justifyContent = "center";
+    el.style.background = "#facc15";
+    el.style.color = "#000000";
+    el.style.border = "3px solid #ffffff";
+    el.style.fontSize = "22px";
+    el.style.fontWeight = "900";
+    el.style.cursor = "grab";
+    el.style.boxShadow = "0 0 28px rgba(250, 204, 21, 0.95)";
+    el.style.zIndex = "9999";
 
-    searchTargetMarkerRef.current = new mapboxgl.Marker(el)
+    searchTargetMarkerRef.current = new mapboxgl.Marker({
+      element: el,
+      draggable: true,
+    })
       .setLngLat([searchTarget.lng, searchTarget.lat])
       .setPopup(
         new mapboxgl.Popup({ offset: 18 }).setHTML(`
-          <div style="font-family:Arial;color:#06111D;font-size:13px;line-height:1.5;min-width:180px;">
+          <div style="font-family:Arial;color:#06111D;font-size:13px;line-height:1.5;min-width:200px;">
             <strong>${searchTarget.label}</strong><br/>
-            Search target
+            Drag this pin to the exact place, then click Save Exact Place.
           </div>
         `)
       )
       .addTo(map);
-  }, [searchTarget]);
+
+    searchTargetMarkerRef.current.on("dragend", () => {
+      const marker = searchTargetMarkerRef.current;
+      if (!marker) return;
+
+      const lngLat = marker.getLngLat();
+
+      setMapSearchTarget((current) =>
+        current
+          ? {
+              ...current,
+              lng: lngLat.lng,
+              lat: lngLat.lat,
+              zoom: map.getZoom(),
+            }
+          : {
+              lng: lngLat.lng,
+              lat: lngLat.lat,
+              zoom: map.getZoom(),
+              label: "Custom place",
+            }
+      );
+    });
+  }, [searchTarget, setMapSearchTarget]);
 
   useEffect(() => {
     const updateClock = () => {
@@ -1378,6 +1430,31 @@ function CommandMap({
   return (
     <div className="relative h-full w-full">
       <div ref={mapContainer} className="h-full w-full" />
+
+      {searchTarget && (
+        <button
+          onClick={() => {
+            const map = mapRef.current;
+            if (!map) return;
+
+            const center = map.getCenter();
+
+            setMapSearchTarget((current) =>
+              current
+                ? {
+                    ...current,
+                    lng: center.lng,
+                    lat: center.lat,
+                    zoom: map.getZoom(),
+                  }
+                : current
+            );
+          }}
+          className="absolute right-4 top-4 z-[45] rounded-md border border-yellow-300/50 bg-yellow-300 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black shadow-[0_0_20px_rgba(250,204,21,0.6)] hover:bg-yellow-200"
+        >
+          Use Map Center
+        </button>
+      )}
 
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_35%,rgba(2,8,23,0.45)_70%,rgba(2,8,23,0.85))]" />
 
@@ -3189,6 +3266,135 @@ function CollectorHealthPanel({
 }
 
 
+
+function CustomPlacesPanel({
+  places,
+  setMapSearchTarget,
+}: {
+  places: CustomPlace[];
+  setMapSearchTarget: Dispatch<SetStateAction<MapSearchTarget | null>>;
+}) {
+  const [placeSearch, setPlaceSearch] = useState("");
+
+  const filteredPlaces = useMemo(() => {
+    const query = placeSearch.trim().toLowerCase();
+
+    if (!query) return places;
+
+    return places.filter((place) =>
+      `${place.name} ${place.address} ${place.category || ""} ${place.aliases.join(" ")}`
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [placeSearch, places]);
+
+  return (
+    <Card className="h-[280px]">
+      <SectionLabel number="9" title="Custom Places" />
+
+      <div className="grid h-full grid-cols-[minmax(0,1fr)_260px] gap-3 p-3 pt-12">
+        <div className="flex min-h-0 flex-col">
+          <div className="mb-3 flex items-center gap-2">
+            <input
+              value={placeSearch}
+              onChange={(event) => setPlaceSearch(event.target.value)}
+              className="h-10 flex-1 rounded-md border border-cyan-500/20 bg-[#07111F] px-3 text-xs text-slate-300 outline-none placeholder:text-slate-500 focus:border-cyan-400"
+              placeholder="Search saved places, aliases, address..."
+            />
+
+            <div className="rounded-md border border-cyan-500/20 bg-[#07111F] px-3 py-2 text-[10px] text-cyan-300">
+              {places.length} saved
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-cyan-500/15">
+            {filteredPlaces.length > 0 ? (
+              <table className="w-full min-w-[720px] text-left text-[11px]">
+                <thead className="sticky top-0 z-10 bg-[#07111F] text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2">Place</th>
+                    <th className="px-3 py-2">Category</th>
+                    <th className="px-3 py-2">Address</th>
+                    <th className="px-3 py-2">Coordinates</th>
+                    <th className="px-3 py-2">Action</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {filteredPlaces.map((place) => (
+                    <tr key={`${place.name}-${place.lat}-${place.lng}`} className="border-t border-cyan-500/10">
+                      <td className="px-3 py-2">
+                        <p className="font-bold text-white">{place.name}</p>
+                        <p className="mt-1 max-w-[220px] truncate text-[9px] text-slate-500">
+                          {place.aliases.length ? place.aliases.join(", ") : "No aliases"}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2 text-slate-400">{place.category || "Custom"}</td>
+                      <td className="max-w-[260px] truncate px-3 py-2 text-slate-400">
+                        {place.address || "No address saved"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-400">
+                        {place.lat.toFixed(5)}, {place.lng.toFixed(5)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() =>
+                            setMapSearchTarget({
+                              lng: place.lng,
+                              lat: place.lat,
+                              zoom: place.zoom || 17,
+                              label: place.name,
+                            })
+                          }
+                          className="rounded-md border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300 hover:bg-cyan-400/20"
+                        >
+                          Focus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="flex h-full items-center justify-center p-4 text-center text-xs text-slate-400">
+                No saved places match your search.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-cyan-500/20 bg-[#07111F] p-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-cyan-300">
+            Accuracy Workflow
+          </p>
+
+          <div className="mt-3 space-y-3 text-[11px] leading-5 text-slate-300">
+            <p>
+              Use this when Mapbox finds only a district or nearby road instead of the exact building.
+            </p>
+
+            <div className="rounded-md border border-cyan-500/15 bg-black/20 p-2">
+              <p className="font-bold text-white">1. Search the place</p>
+              <p className="text-slate-400">Atlas will move to the best available result.</p>
+            </div>
+
+            <div className="rounded-md border border-cyan-500/15 bg-black/20 p-2">
+              <p className="font-bold text-white">2. Drag yellow pin</p>
+              <p className="text-slate-400">Move it to the exact entrance or building.</p>
+            </div>
+
+            <div className="rounded-md border border-cyan-500/15 bg-black/20 p-2">
+              <p className="font-bold text-white">3. Save Exact Place</p>
+              <p className="text-slate-400">Atlas will find it first next time.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+
 function FeatureStrip() {
   const features = [
     ["◎", "Real-Time Monitoring", "Live tracking of cameras, traffic, ships, flights & weather."],
@@ -3227,11 +3433,13 @@ export default function Home() {
   const [selectedCamera, setSelectedCamera] = useState<Camera>(cameras[0]);
   const [globalSearch, setGlobalSearch] = useState("");
   const [searchStatus, setSearchStatus] = useState("");
+  const [savePlaceStatus, setSavePlaceStatus] = useState("");
   const [aiCommand, setAiCommand] = useState("");
   const [aiStatus, setAiStatus] = useState("");
   const [aiAnswer, setAiAnswer] = useState("");
   const [isAskingAtlas, setIsAskingAtlas] = useState(false);
   const [mapSearchTarget, setMapSearchTarget] = useState<MapSearchTarget | null>(null);
+  const [savedCustomPlaces, setSavedCustomPlaces] = useState<CustomPlace[]>(fallbackCustomPlaces);
   const [liveFlightCount, setLiveFlightCount] = useState(0);
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [flightFeedStatus, setFlightFeedStatus] = useState<FlightFeedStatus>({
@@ -3381,7 +3589,7 @@ export default function Home() {
 
     const lowerQuery = query.toLowerCase();
 
-    const matchedCustomPlace = customPlaces.find((place) =>
+    const matchedCustomPlace = savedCustomPlaces.find((place) =>
       place.aliases.some((alias) => lowerQuery.includes(alias.toLowerCase()))
     );
 
@@ -3566,7 +3774,69 @@ export default function Home() {
   };
 
   const handleGlobalSearch = async () => {
+    setSavePlaceStatus("");
     await runAtlasSearch(globalSearch, { source: "search", status: setSearchStatus });
+  };
+
+  const handleSaveCurrentSearchTarget = async () => {
+    if (!mapSearchTarget) {
+      setSavePlaceStatus("Search a place first, then save it.");
+      return;
+    }
+
+    const name = window.prompt("Save place as:", mapSearchTarget.label);
+
+    if (!name?.trim()) {
+      setSavePlaceStatus("Save cancelled.");
+      return;
+    }
+
+    const aliasesInput = window.prompt(
+      "Optional aliases separated by commas:",
+      mapSearchTarget.label
+    );
+
+    const aliases = aliasesInput
+      ? aliasesInput
+          .split(",")
+          .map((alias) => alias.trim())
+          .filter(Boolean)
+      : [mapSearchTarget.label];
+
+    try {
+      setSavePlaceStatus("Saving place...");
+
+      const response = await fetch("/api/custom-places", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          aliases,
+          address: mapSearchTarget.label,
+          category: "Custom",
+          lat: mapSearchTarget.lat,
+          lng: mapSearchTarget.lng,
+          zoom: mapSearchTarget.zoom || 17,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setSavePlaceStatus(data.error || "Could not save this place.");
+        return;
+      }
+
+      if (data.place) {
+        setSavedCustomPlaces((current) => [data.place, ...current]);
+      }
+
+      setSavePlaceStatus(`Saved exact place: ${data.place?.name || name.trim()}`);
+    } catch {
+      setSavePlaceStatus("Save failed. Check /api/custom-places and Supabase.");
+    }
   };
 
   const handleAskAtlas = async () => {
@@ -3670,6 +3940,36 @@ export default function Home() {
       setIsAskingAtlas(false);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCustomPlaces = async () => {
+      try {
+        const response = await fetch("/api/custom-places", {
+          cache: "no-store",
+        });
+
+        const data = await response.json();
+
+        if (cancelled || !response.ok) return;
+
+        const places: CustomPlace[] = data.places || [];
+
+        if (places.length > 0) {
+          setSavedCustomPlaces(places);
+        }
+      } catch {
+        // Keep fallback places active if Supabase custom places are not ready.
+      }
+    };
+
+    loadCustomPlaces();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load saved Supabase data first so Atlas opens quickly, even before live providers respond.
   useEffect(() => {
@@ -3904,9 +4204,26 @@ export default function Home() {
                   Go
                 </button>
 
-                {searchStatus && (
-                  <div className="absolute left-0 top-[calc(100%+8px)] z-[999] w-full rounded-md border border-cyan-500/20 bg-[#07111F] px-3 py-2 text-[10px] text-slate-300 shadow-[0_0_18px_rgba(0,200,255,0.12)]">
-                    {searchStatus}
+                {(searchStatus || savePlaceStatus) && (
+                  <div className="absolute left-0 top-[calc(100%+8px)] z-[999] w-full rounded-md border border-cyan-500/20 bg-[#07111F] p-3 text-[10px] text-slate-300 shadow-[0_0_18px_rgba(0,200,255,0.12)]">
+                    {searchStatus && <p>{searchStatus}</p>}
+                    {savePlaceStatus && (
+                      <p className="mt-1 text-cyan-300">{savePlaceStatus}</p>
+                    )}
+
+                    {mapSearchTarget && (
+                      <>
+                        <p className="mt-2 text-[9px] leading-4 text-slate-400">
+                          Need more accuracy? Drag the yellow pin to the exact spot, or pan the map and click Use Map Center, then save it.
+                        </p>
+                        <button
+                          onClick={handleSaveCurrentSearchTarget}
+                          className="mt-2 w-full rounded-md border border-cyan-500/30 bg-cyan-400/10 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-cyan-300 hover:bg-cyan-400/20"
+                        >
+                          Save Exact Place
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -3990,6 +4307,7 @@ export default function Home() {
                   setFlightFeedStatus={setFlightFeedStatus}
                   setShipFeedStatus={setShipFeedStatus}
                   searchTarget={mapSearchTarget}
+                  setMapSearchTarget={setMapSearchTarget}
                 />
 
                   </Card>
@@ -4103,6 +4421,13 @@ export default function Home() {
 
               <div className="col-span-12">
                 <FeatureStrip />
+              </div>
+
+              <div className="col-span-12">
+                <CustomPlacesPanel
+                  places={savedCustomPlaces}
+                  setMapSearchTarget={setMapSearchTarget}
+                />
               </div>
 
               <div className="col-span-6">
